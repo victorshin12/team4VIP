@@ -1,16 +1,45 @@
-# React + Vite
+# Hospital Cost Report Visualization Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A React application for visualizing hospital cost report data (HCRIS) with multiple interactive charts and graphs.
 
-Currently, two official plugins are available:
+## Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-## React Compiler
+2. **Copy the CSV file to the public folder:**
+   ```bash
+   cp /Users/victorshin/Downloads/hospital-cost-report/hcris_hospyear.csv public/
+   ```
+   Or manually copy `hcris_hospyear.csv` to the `public/` directory.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+3. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
 
-## Expanding the ESLint configuration
+## Features
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+The dashboard includes 8 different visualizations:
+
+1. **Revenue & Cost Trends** - Area chart showing total revenue and cost over time (1997-2020)
+2. **Top Hospitals by Revenue** - Horizontal bar chart of top 10 hospitals
+3. **Revenue vs Cost Relationship** - Scatter plot showing correlation
+4. **Bed Capacity Distribution** - Bar chart of hospital bed size distribution
+5. **Revenue by Hospital Type** - Pie chart showing average revenue by control type
+6. **Revenue Efficiency Trend** - Area chart of revenue per bed over time
+7. **Discharges vs Revenue** - Scatter plot of inpatient discharges vs revenue
+8. **Year-over-Year Growth** - Line chart showing revenue growth percentage
+
+## Technologies
+
+- React 19
+- Vite
+- Recharts (for visualizations)
+- PapaParse (for CSV parsing)
+
+## Data Source
+
+HCRIS (Healthcare Cost Report Information System) hospital-year aggregated data.
