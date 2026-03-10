@@ -67,15 +67,25 @@ function Dashboard() {
       download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
       complete: (results) => {
         const processed = results.data
-          .filter(r => r.ayear && r.tottotrev && r.totcost && !isNaN(r.tottotrev) && !isNaN(r.totcost))
+          .filter(r => {
+            // Use netpatrev (net patient revenue) — the actual revenue collected
+            // tottotrev is gross charges (list prices), which are 3-5x higher and misleading
+            const rev = parseFloat(r.netpatrev);
+            const cost = parseFloat(r.totcost);
+            return r.ayear && !isNaN(rev) && !isNaN(cost) && rev > 0 && cost > 0;
+          })
           .map(r => {
-            const rev = parseFloat(r.tottotrev) || 0;
-            const cost = parseFloat(r.totcost) || 0;
+            const rev = parseFloat(r.netpatrev);
+            const cost = parseFloat(r.totcost);
+            const margin = ((rev - cost) / rev) * 100;
             return {
               ...r,
-              tottotrev: rev, totcost: cost,
+              revenue: rev,
+              cost: cost,
               beds_total: parseFloat(r.beds_total) || 0,
-              margin: rev > 0 ? ((rev - cost) / rev) * 100 : 0,
+              // Clamp margin to -200..200 to avoid extreme outliers polluting averages
+              margin: Math.max(-200, Math.min(200, margin)),
+              marginRaw: margin,
               ownershipCategory: OWNERSHIP_CATEGORY[r.typ_control] || 'Unknown',
             };
           });
@@ -94,9 +104,13 @@ function Dashboard() {
     const maxYear = years.reduce((m, y) => y > m ? y : m, years[0]);
     const uniqueHospitals = new Set(data.map(d => d.pn)).size;
     const latest = data.filter(d => d.ayear === maxYear);
-    const avgRevLatest = latest.reduce((s, d) => s + d.tottotrev, 0) / latest.length;
-    const avgMarginLatest = latest.reduce((s, d) => s + d.margin, 0) / latest.length;
-    const totalRevLatest = latest.reduce((s, d) => s + d.tottotrev, 0);
+    // Use only hospitals with reasonable margins for avg margin calc
+    const reasonableLatest = latest.filter(d => d.marginRaw > -100 && d.marginRaw < 100);
+    const avgRevLatest = latest.reduce((s, d) => s + d.revenue, 0) / latest.length;
+    const avgMarginLatest = reasonableLatest.length > 0
+      ? reasonableLatest.reduce((s, d) => s + d.marginRaw, 0) / reasonableLatest.length
+      : 0;
+    const totalRevLatest = latest.reduce((s, d) => s + d.revenue, 0);
     return { minYear, maxYear, uniqueHospitals, totalRecords: data.length, avgRevLatest, avgMarginLatest, totalRevLatest, latestCount: latest.length };
   }, [data]);
 
@@ -106,12 +120,25 @@ function Dashboard() {
     const by = {};
     data.forEach(r => {
       const y = r.ayear;
-      if (!by[y]) by[y] = { year: y, rev: 0, cost: 0, count: 0, marginSum: 0 };
-      by[y].rev += r.tottotrev; by[y].cost += r.totcost;
-      by[y].marginSum += r.margin; by[y].count += 1;
+      if (!by[y]) by[y] = { year: y, rev: 0, cost: 0, count: 0, marginSum: 0, marginCount: 0 };
+      by[y].rev += r.revenue;
+      by[y].cost += r.cost;
+      by[y].count += 1;
+      // Only include reasonable margins in averages
+      if (r.marginRaw > -100 && r.marginRaw < 100) {
+        by[y].marginSum += r.marginRaw;
+        by[y].marginCount += 1;
+      }
     });
     return Object.values(by)
-      .map(d => ({ year: d.year, revenue: d.rev / 1e9, cost: d.cost / 1e9, avgRevPerHospital: d.rev / d.count / 1e6, hospitalCount: d.count }))
+      .map(d => ({
+        year: d.year,
+        revenue: d.rev / 1e9,
+        cost: d.cost / 1e9,
+        avgRevPerHospital: d.rev / d.count / 1e6,
+        avgMargin: d.marginCount > 0 ? d.marginSum / d.marginCount : 0,
+        hospitalCount: d.count,
+      }))
       .sort((a, b) => a.year - b.year);
   }, [data]);
 
@@ -132,13 +159,21 @@ function Dashboard() {
     latest.forEach(r => {
       const c = r.ownershipCategory;
       if (c === 'Unknown') return;
-      if (!by[c]) by[c] = { category: c, revSum: 0, costSum: 0, marginSum: 0, count: 0 };
-      by[c].revSum += r.tottotrev; by[c].costSum += r.totcost;
-      by[c].marginSum += r.margin; by[c].count += 1;
+      if (!by[c]) by[c] = { category: c, revSum: 0, costSum: 0, marginSum: 0, marginCount: 0, count: 0 };
+      by[c].revSum += r.revenue;
+      by[c].costSum += r.cost;
+      by[c].count += 1;
+      if (r.marginRaw > -100 && r.marginRaw < 100) {
+        by[c].marginSum += r.marginRaw;
+        by[c].marginCount += 1;
+      }
     });
     return Object.values(by).map(d => ({
-      category: d.category, avgRevenue: d.revSum / d.count / 1e6, avgCost: d.costSum / d.count / 1e6,
-      avgMargin: d.marginSum / d.count, count: d.count,
+      category: d.category,
+      avgRevenue: d.revSum / d.count / 1e6,
+      avgCost: d.costSum / d.count / 1e6,
+      avgMargin: d.marginCount > 0 ? d.marginSum / d.marginCount : 0,
+      count: d.count,
     })).sort((a, b) => b.avgRevenue - a.avgRevenue);
   }, [data, stats]);
 
@@ -146,8 +181,8 @@ function Dashboard() {
   const scatterData = useMemo(() => {
     if (!data.length || !stats) return [];
     return data
-      .filter(d => d.ayear === stats.maxYear && d.tottotrev > 0 && d.totcost > 0 && d.tottotrev < 5e9 && d.totcost < 5e9)
-      .map(d => ({ revenue: d.tottotrev / 1e6, cost: d.totcost / 1e6, name: d.hospital_name, beds: d.beds_total, category: d.ownershipCategory }));
+      .filter(d => d.ayear === stats.maxYear && d.revenue > 1e6 && d.cost > 1e6 && d.revenue < 15e9 && d.cost < 15e9)
+      .map(d => ({ revenue: d.revenue / 1e6, cost: d.cost / 1e6, name: d.hospital_name, beds: d.beds_total, category: d.ownershipCategory }));
   }, [data, stats]);
 
   // ── 5. Bed Distribution ───────────────────────────────────
@@ -168,23 +203,24 @@ function Dashboard() {
   const topHospitals = useMemo(() => {
     if (!data.length || !stats) return [];
     return data
-      .filter(d => d.ayear === stats.maxYear && d.hospital_name)
-      .sort((a, b) => b.tottotrev - a.tottotrev)
+      .filter(d => d.ayear === stats.maxYear && d.hospital_name && d.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10)
       .map(d => ({
         name: d.hospital_name.length > 35 ? d.hospital_name.substring(0, 35) + '…' : d.hospital_name,
-        fullName: d.hospital_name, revenue: d.tottotrev / 1e6, cost: d.totcost / 1e6,
-        margin: d.margin, beds: d.beds_total, type: d.ownershipCategory,
+        fullName: d.hospital_name, revenue: d.revenue / 1e6, cost: d.cost / 1e6,
+        margin: d.marginRaw, beds: d.beds_total, type: d.ownershipCategory,
       }));
   }, [data, stats]);
 
   // ── 7. Margin Distribution ────────────────────────────────
   const marginDistribution = useMemo(() => {
     if (!data.length || !stats) return [];
-    const latest = data.filter(d => d.ayear === stats.maxYear && d.margin > -100 && d.margin < 100);
+    // Only include hospitals with margins between -100% and 100% (reasonable range)
+    const latest = data.filter(d => d.ayear === stats.maxYear && d.marginRaw > -100 && d.marginRaw < 100);
     const bk = {};
     latest.forEach(d => {
-      const b = Math.floor(d.margin / 5) * 5;
+      const b = Math.floor(d.marginRaw / 5) * 5;
       const key = `${b}% to ${b + 5}%`;
       if (!bk[key]) bk[key] = { range: key, count: 0, sortKey: b, isNegative: b < 0 };
       bk[key].count += 1;
@@ -195,12 +231,13 @@ function Dashboard() {
   // ── Computed Insights ─────────────────────────────────────
   const insights = useMemo(() => {
     if (!yearlyTrend.length || !stats || !growthData.length) return {};
-    const first = yearlyTrend[0]; const last = yearlyTrend[yearlyTrend.length - 1];
+    const first = yearlyTrend[0];
+    const last = yearlyTrend[yearlyTrend.length - 1];
     const revGrowthTotal = ((last.revenue - first.revenue) / first.revenue * 100).toFixed(0);
     const costGrowthTotal = ((last.cost - first.cost) / first.cost * 100).toFixed(0);
-    const profitableCount = data.filter(d => d.ayear === stats.maxYear && d.margin > 0).length;
-    const totalLatest = data.filter(d => d.ayear === stats.maxYear).length;
-    const profitablePct = ((profitableCount / totalLatest) * 100).toFixed(1);
+    const profitableCount = data.filter(d => d.ayear === stats.maxYear && d.marginRaw > 0 && d.marginRaw < 100).length;
+    const totalLatest = data.filter(d => d.ayear === stats.maxYear && d.marginRaw > -100 && d.marginRaw < 100).length;
+    const profitablePct = totalLatest > 0 ? ((profitableCount / totalLatest) * 100).toFixed(1) : '—';
     const maxG = growthData.reduce((m, d) => d.revenueGrowth > m.revenueGrowth ? d : m, growthData[0]);
     const minG = growthData.reduce((m, d) => d.revenueGrowth < m.revenueGrowth ? d : m, growthData[0]);
     return { revGrowthTotal, costGrowthTotal, profitablePct, maxG, minG };
@@ -219,6 +256,11 @@ function Dashboard() {
   }
   if (!stats) return null;
 
+  // Format total revenue for KPI card
+  const totalRevDisplay = stats.totalRevLatest >= 1e12
+    ? `$${(stats.totalRevLatest / 1e12).toFixed(2)}T`
+    : `$${(stats.totalRevLatest / 1e9).toFixed(0)}B`;
+
   return (
     <div style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '0 0 60px', fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}>
 
@@ -227,7 +269,7 @@ function Dashboard() {
         <div style={{ maxWidth: 1400, margin: '0 auto' }}>
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em' }}>
             Hospital Cost Report Analysis
-          </h1>
+      </h1>
           <p style={{ margin: '8px 0 0', fontSize: 15, color: '#94a3b8', lineHeight: 1.5 }}>
             HCRIS (Healthcare Cost Report Information System) · {stats.minYear}–{stats.maxYear} · {fmtNum(stats.uniqueHospitals)} unique hospitals · {fmtNum(stats.totalRecords)} hospital-year records
           </p>
@@ -240,9 +282,9 @@ function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 32 }}>
           {[
             { label: 'Hospitals Tracked', value: fmtNum(stats.uniqueHospitals), sub: `${stats.minYear}–${stats.maxYear}`, color: '#2563eb' },
-            { label: `Total Revenue (${stats.maxYear})`, value: `$${(stats.totalRevLatest / 1e12).toFixed(2)}T`, sub: `Across ${fmtNum(stats.latestCount)} hospitals`, color: '#059669' },
-            { label: 'Avg Revenue / Hospital', value: `$${(stats.avgRevLatest / 1e6).toFixed(1)}M`, sub: `In ${stats.maxYear}`, color: '#d97706' },
-            { label: 'Avg Profit Margin', value: `${stats.avgMarginLatest.toFixed(1)}%`, sub: `In ${stats.maxYear}`, color: stats.avgMarginLatest >= 0 ? '#059669' : '#dc2626' },
+            { label: `Net Revenue (${stats.maxYear})`, value: totalRevDisplay, sub: `Across ${fmtNum(stats.latestCount)} hospitals`, color: '#059669' },
+            { label: 'Avg Revenue / Hospital', value: `$${(stats.avgRevLatest / 1e6).toFixed(0)}M`, sub: `In ${stats.maxYear}`, color: '#d97706' },
+            { label: 'Avg Profit Margin', value: `${stats.avgMarginLatest.toFixed(1)}%`, sub: `In ${stats.maxYear} (excl. outliers)`, color: stats.avgMarginLatest >= 0 ? '#059669' : '#dc2626' },
           ].map((kpi, i) => (
             <div key={i} style={{
               backgroundColor: '#fff', borderRadius: 12, padding: '20px 24px',
@@ -260,28 +302,31 @@ function Dashboard() {
 
           {/* ═══ 1. Revenue & Cost Trend (full width) ═══ */}
           <Card fullWidth>
-            <ChartTitle title="Total Industry Revenue & Cost Over Time" subtitle="Aggregate annual revenue and cost across all reporting hospitals (in billions of dollars). Orange line shows the number of reporting hospitals each year." />
+            <ChartTitle
+              title="Industry Net Revenue & Cost Over Time"
+              subtitle="Aggregate annual net patient revenue and total cost across all reporting hospitals (in billions of dollars). Net patient revenue = actual payments received after insurance adjustments, not gross charges."
+            />
             <ResponsiveContainer width="100%" height={380}>
               <ComposedChart data={yearlyTrend} margin={{ top: 10, right: 70, left: 25, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="year" tick={{ fontSize: 12 }} />
-                <YAxis yAxisId="left" tickFormatter={v => `$${v}B`} tick={{ fontSize: 11 }} width={60} />
-                <YAxis yAxisId="right" orientation="right" tickFormatter={v => fmtNum(v)} tick={{ fontSize: 11 }} width={55} />
-                <Tooltip formatter={(v, name) => name.includes('Count') ? fmtNum(Math.round(v)) : `$${v.toFixed(1)}B`} />
+                <YAxis yAxisId="left" tickFormatter={v => `$${Math.round(+v)}B`} tick={{ fontSize: 11 }} width={60} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={v => fmtNum(+v)} tick={{ fontSize: 11 }} width={55} />
+                <Tooltip formatter={(v, name) => name.includes('Count') ? fmtNum(Math.round(+v)) : `$${(+v).toFixed(1)}B`} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                <Area yAxisId="left" type="monotone" dataKey="revenue" fill="#2563eb" fillOpacity={0.12} stroke="#2563eb" strokeWidth={2} name="Total Revenue ($B)" />
-                <Area yAxisId="left" type="monotone" dataKey="cost" fill="#059669" fillOpacity={0.12} stroke="#059669" strokeWidth={2} name="Total Cost ($B)" />
+                <Area yAxisId="left" type="monotone" dataKey="revenue" fill="#2563eb" fillOpacity={0.12} stroke="#2563eb" strokeWidth={2} name="Net Revenue ($B)" />
+                <Area yAxisId="left" type="monotone" dataKey="cost" fill="#dc2626" fillOpacity={0.08} stroke="#dc2626" strokeWidth={2} name="Total Cost ($B)" />
                 <Line yAxisId="right" type="monotone" dataKey="hospitalCount" stroke="#d97706" strokeWidth={2} dot={false} name="Hospital Count" />
               </ComposedChart>
             </ResponsiveContainer>
             <Insight>
-              📈 Industry revenue grew <strong>{insights.revGrowthTotal}%</strong> from {stats.minYear} to {stats.maxYear}, while costs grew <strong>{insights.costGrowthTotal}%</strong>. The gap between revenue and cost represents the industry's aggregate surplus. Hospital count has remained relatively stable, meaning growth is driven by per-hospital revenue increases — not new facilities.
+              📈 Net revenue grew <strong>{insights.revGrowthTotal}%</strong> from {stats.minYear} to {stats.maxYear}, while costs grew <strong>{insights.costGrowthTotal}%</strong>. When cost exceeds revenue, the industry is collectively operating at a loss. The orange line shows hospital count has remained relatively stable (~6,000), so growth is driven by per-hospital increases.
             </Insight>
           </Card>
 
           {/* ═══ 2. Average Revenue per Hospital ═══ */}
           <Card>
-            <ChartTitle title="Average Revenue per Hospital" subtitle="Mean total revenue per reporting hospital each year, in millions of dollars. Shows how individual hospitals have grown over time." />
+            <ChartTitle title="Average Net Revenue per Hospital" subtitle="Mean net patient revenue per hospital each year (in millions). Shows how much individual hospitals collect on average." />
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={yearlyTrend} margin={{ top: 10, right: 20, left: 15, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -292,27 +337,27 @@ function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
             <Insight>
-              While chart 1 shows total industry revenue (which includes growth from more hospitals reporting), this chart isolates the per-hospital average. A consistent upward trend confirms that individual hospitals are generating more revenue year over year — driven by rising prices, expanded services, and higher patient acuity.
+              This isolates per-hospital revenue growth from changes in the number of reporting hospitals. A consistent upward trend confirms rising revenue per facility — driven by higher prices, expanded services, and increased patient acuity.
             </Insight>
           </Card>
 
           {/* ═══ 3. YoY Revenue Growth ═══ */}
           <Card>
-            <ChartTitle title="Year-over-Year Revenue Growth" subtitle="Annual percentage change in total industry revenue. Red bars indicate years when revenue declined." />
-            <ResponsiveContainer width="100%" height={300}>
+            <ChartTitle title="Year-over-Year Revenue Growth" subtitle="Annual percentage change in total industry net revenue. Red bars indicate years when revenue declined." />
+          <ResponsiveContainer width="100%" height={300}>
               <BarChart data={growthData} margin={{ top: 10, right: 20, left: 15, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={v => `${Math.round(Number(v))}%`} tick={{ fontSize: 11 }} width={45} />
-                <Tooltip formatter={v => `${Number(v).toFixed(2)}%`} />
+                <YAxis tickFormatter={v => `${Math.round(+v)}%`} tick={{ fontSize: 11 }} width={45} />
+                <Tooltip formatter={v => `${(+v).toFixed(2)}%`} />
                 <ReferenceLine y={0} stroke="#94a3b8" />
                 <Bar dataKey="revenueGrowth" name="Revenue Growth %" radius={[3, 3, 0, 0]}>
                   {growthData.map((entry, i) => (
                     <Cell key={i} fill={entry.revenueGrowth >= 0 ? '#059669' : '#dc2626'} />
                   ))}
                 </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            </BarChart>
+          </ResponsiveContainer>
             <Insight>
               {insights.maxG && insights.minG && (
                 <>Revenue grew fastest in <strong>{insights.maxG.year}</strong> (+{insights.maxG.revenueGrowth.toFixed(1)}%) and slowest in <strong>{insights.minG.year}</strong> ({insights.minG.revenueGrowth.toFixed(1)}%). Revenue dips often correlate with economic downturns or major policy shifts.</>
@@ -330,7 +375,7 @@ function Dashboard() {
               <BarChart data={ownershipData} margin={{ top: 10, right: 30, left: 25, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="category" tick={{ fontSize: 13 }} />
-                <YAxis tickFormatter={v => `$${v}M`} tick={{ fontSize: 11 }} width={70} />
+                <YAxis tickFormatter={v => `$${Math.round(+v)}M`} tick={{ fontSize: 11 }} width={70} />
                 <Tooltip
                   content={({ payload }) => {
                     if (!payload || !payload.length) return null;
@@ -342,17 +387,17 @@ function Dashboard() {
                         <div>Avg Cost: ${d.avgCost.toFixed(1)}M</div>
                         <div>Avg Margin: {d.avgMargin.toFixed(1)}%</div>
                         <div>Hospitals: {fmtNum(d.count)}</div>
-                      </div>
+        </div>
                     );
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="avgRevenue" fill="#2563eb" name="Avg Revenue ($M)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="avgCost" fill="#94a3b8" name="Avg Cost ($M)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="avgRevenue" fill="#2563eb" name="Avg Net Revenue ($M)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="avgCost" fill="#94a3b8" name="Avg Total Cost ($M)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
             <Insight>
-              Nonprofit hospitals tend to have the highest average revenue and are the most numerous. For-profit hospitals often operate with different cost structures. Government hospitals typically serve safety-net roles, which can affect their financial metrics. Hover over bars for margin and count details.
+              Nonprofit hospitals tend to have the highest average revenue and are the most numerous. When the gray bar (cost) exceeds the blue bar (revenue), that ownership category is operating at a loss on average. Hover over bars for margin and count details.
             </Insight>
           </Card>
 
@@ -360,14 +405,18 @@ function Dashboard() {
           <Card>
             <ChartTitle
               title={`Revenue vs. Cost (${stats.maxYear})`}
-              subtitle="Each dot is one hospital. Points above the diagonal spend more than they earn."
+              subtitle="Each dot is one hospital. Points above the diagonal spend more than they collect."
             />
             <ResponsiveContainer width="100%" height={360}>
               <ScatterChart margin={{ top: 10, right: 20, left: 15, bottom: 35 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis type="number" dataKey="revenue" name="Revenue" tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(1)}B` : `$${v}M`} tick={{ fontSize: 11 }}
-                  label={{ value: 'Revenue ($M)', position: 'insideBottom', offset: -20, fontSize: 12, fill: '#64748b' }} />
-                <YAxis type="number" dataKey="cost" name="Cost" tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(1)}B` : `$${v}M`} tick={{ fontSize: 11 }} width={70} />
+                <XAxis type="number" dataKey="revenue" name="Revenue"
+                  tickFormatter={v => +v >= 1000 ? `$${(+v / 1000).toFixed(1)}B` : `$${Math.round(+v)}M`}
+                  tick={{ fontSize: 11 }}
+                  label={{ value: 'Net Revenue ($M)', position: 'insideBottom', offset: -20, fontSize: 12, fill: '#64748b' }} />
+                <YAxis type="number" dataKey="cost" name="Cost"
+                  tickFormatter={v => +v >= 1000 ? `$${(+v / 1000).toFixed(1)}B` : `$${Math.round(+v)}M`}
+                  tick={{ fontSize: 11 }} width={70} />
                 <Tooltip content={({ payload }) => (
                   <ScatterTip payload={payload} fields={[
                     ['revenue', 'Revenue', v => `$${v.toFixed(0)}M`],
@@ -377,10 +426,10 @@ function Dashboard() {
                   ]} />
                 )} />
                 <Scatter data={scatterData} fill="#2563eb" fillOpacity={0.35} r={2.5} />
-              </ScatterChart>
-            </ResponsiveContainer>
+            </ScatterChart>
+          </ResponsiveContainer>
             <Insight>
-              Most hospitals cluster tightly along the diagonal (revenue ≈ cost), confirming thin industry margins. Hospitals above the line operate at a loss; those below earn a surplus. Outliers far from the cluster deserve further investigation.
+              Hospitals near the diagonal have revenue ≈ cost (thin margins). Points above the line operate at a loss — their costs exceed collections. Points below have a surplus. The tight clustering confirms the thin-margin nature of hospital operations.
             </Insight>
           </Card>
 
@@ -394,11 +443,11 @@ function Dashboard() {
               <BarChart data={bedDistribution} margin={{ top: 10, right: 20, left: 15, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="range" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={v => fmtNum(v)} tick={{ fontSize: 11 }} width={50} />
-                <Tooltip />
+                <YAxis tickFormatter={v => fmtNum(+v)} tick={{ fontSize: 11 }} width={50} />
+              <Tooltip />
                 <Bar dataKey="count" fill="#7c3aed" name="Hospitals" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            </BarChart>
+          </ResponsiveContainer>
             <Insight>
               The distribution is heavily right-skewed — the vast majority of U.S. hospitals have fewer than 200 beds. Large medical centers with 500+ beds are relatively rare but account for a disproportionate share of total revenue and patient volume.
             </Insight>
@@ -408,36 +457,36 @@ function Dashboard() {
           <Card fullWidth>
             <ChartTitle
               title={`Profit Margin Distribution (${stats.maxYear})`}
-              subtitle={`How are hospital margins spread? ${insights.profitablePct || '—'}% of hospitals had positive margins. Red = operating at a loss, Green = profitable.`}
+              subtitle={`How are hospital margins spread? ${insights.profitablePct || '—'}% of hospitals had positive margins. Margin = (net revenue − cost) ÷ net revenue. Hospitals with extreme margins (>100% or <-100%) are excluded as data anomalies.`}
             />
             <ResponsiveContainer width="100%" height={340}>
               <BarChart data={marginDistribution} margin={{ top: 10, right: 30, left: 15, bottom: 50 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="range" tick={{ fontSize: 10 }} interval={0} angle={-45} textAnchor="end" height={70} />
-                <YAxis tickFormatter={v => fmtNum(v)} tick={{ fontSize: 11 }} width={50} />
+                <YAxis tickFormatter={v => fmtNum(+v)} tick={{ fontSize: 11 }} width={50} />
                 <Tooltip />
                 <Bar dataKey="count" name="Hospitals" radius={[3, 3, 0, 0]}>
                   {marginDistribution.map((e, i) => (
                     <Cell key={i} fill={e.isNegative ? '#fca5a5' : '#86efac'} />
-                  ))}
+                ))}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+          </ResponsiveContainer>
             <Insight>
-              🔴 Red bars = hospitals operating at a loss · 🟢 Green bars = profitable hospitals. About <strong>{insights.profitablePct || '—'}%</strong> had positive margins in {stats.maxYear}. The shape of this distribution reveals whether the industry is broadly healthy or if a large tail of struggling hospitals exists.
+              🔴 Red bars = hospitals operating at a loss · 🟢 Green bars = profitable hospitals. About <strong>{insights.profitablePct || '—'}%</strong> had positive margins in {stats.maxYear}. Many hospitals operate on razor-thin margins, and a significant share are financially underwater.
             </Insight>
           </Card>
 
           {/* ═══ 8. Top 10 Hospitals (full width) ═══ */}
           <Card fullWidth>
             <ChartTitle
-              title={`Top 10 Hospitals by Revenue (${stats.maxYear})`}
-              subtitle="The largest hospitals by total revenue. Blue = revenue, gray = cost. The gap shows each hospital's margin."
+              title={`Top 10 Hospitals by Net Revenue (${stats.maxYear})`}
+              subtitle="The largest hospitals by net patient revenue. Blue = revenue, gray = cost. The gap shows each hospital's margin."
             />
             <ResponsiveContainer width="100%" height={420}>
               <BarChart data={topHospitals} layout="vertical" margin={{ top: 5, right: 30, left: 30, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis type="number" tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(1)}B` : `$${v}M`} tick={{ fontSize: 11 }} />
+                <XAxis type="number" tickFormatter={v => +v >= 1000 ? `$${(+v / 1000).toFixed(1)}B` : `$${Math.round(+v)}M`} tick={{ fontSize: 11 }} />
                 <YAxis dataKey="name" type="category" width={230} tick={{ fontSize: 11 }} />
                 <Tooltip content={({ payload }) => {
                   if (!payload || !payload.length) return null;
@@ -445,27 +494,27 @@ function Dashboard() {
                   return (
                     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 12, maxWidth: 280 }}>
                       <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.fullName}</div>
-                      <div>Revenue: ${d.revenue.toFixed(0)}M</div>
-                      <div>Cost: ${d.cost.toFixed(0)}M</div>
+                      <div>Net Revenue: ${d.revenue.toFixed(0)}M</div>
+                      <div>Total Cost: ${d.cost.toFixed(0)}M</div>
                       <div>Margin: {d.margin.toFixed(1)}%</div>
                       <div>Beds: {fmtNum(d.beds)} · {d.type}</div>
-                    </div>
+        </div>
                   );
                 }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="revenue" fill="#2563eb" name="Revenue ($M)" radius={[0, 4, 4, 0]} />
-                <Bar dataKey="cost" fill="#b0b8c4" name="Cost ($M)" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="revenue" fill="#2563eb" name="Net Revenue ($M)" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="cost" fill="#b0b8c4" name="Total Cost ($M)" radius={[0, 4, 4, 0]} />
               </BarChart>
-            </ResponsiveContainer>
+          </ResponsiveContainer>
             <Insight>
-              The top hospitals by revenue are predominantly large academic medical centers and integrated health systems. The gap between blue (revenue) and gray (cost) bars shows each hospital's financial cushion. A small gap means thin margins despite enormous volume.
+              The top hospitals by net revenue are predominantly large academic medical centers. The gap between blue (revenue) and gray (cost) bars shows each hospital's financial cushion. When cost exceeds revenue, the hospital is operating at a loss despite high volume.
             </Insight>
           </Card>
         </div>
 
         {/* ── Footer ─────────────────────────────────────────── */}
         <div style={{ marginTop: 36, padding: '22px 28px', backgroundColor: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', fontSize: 13, color: '#64748b', lineHeight: 1.7 }}>
-          <strong style={{ color: '#1e293b' }}>About this data:</strong> This dashboard visualizes the Healthcare Cost Report Information System (HCRIS) dataset, containing financial and operational data reported by Medicare-certified hospitals to the Centers for Medicare &amp; Medicaid Services (CMS). All dollar figures are nominal (not inflation-adjusted). Profit margin = (Total Revenue − Total Cost) / Total Revenue. Ownership types follow CMS control-type codes (1–13). Data sourced from the publicly available HCRIS hospital-year file.
+          <strong style={{ color: '#1e293b' }}>About this data:</strong> This dashboard uses <strong>net patient revenue</strong> (actual payments received after contractual adjustments with insurers) — not gross charges, which can be 3–5× higher and misleading. Total cost reflects actual operating expenditures. Profit margin = (Net Revenue − Total Cost) / Net Revenue. Hospitals with extreme margins (beyond ±100%) are excluded from margin averages as data anomalies. Data sourced from CMS HCRIS hospital-year files.
         </div>
       </div>
     </div>
