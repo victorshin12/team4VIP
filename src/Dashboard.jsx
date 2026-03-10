@@ -228,6 +228,24 @@ function Dashboard() {
     return Object.values(bk).sort((a, b) => a.sortKey - b.sortKey);
   }, [data, stats]);
 
+  // ── 8. Example rows (for explanation) ───────────────────────
+  const exampleRows = useMemo(() => {
+    // Take 3 representative hospitals from the latest year for display
+    if (!data.length || !stats) return [];
+    return data
+      .filter(d => d.ayear === stats.maxYear)
+      .slice(0, 3)
+      .map(d => ({
+        year: d.ayear,
+        name: d.hospital_name,
+        type: d.ownershipCategory,
+        beds: d.beds_total,
+        revenueM: d.revenue / 1e6,
+        costM: d.cost / 1e6,
+        margin: d.marginRaw,
+      }));
+  }, [data, stats]);
+
   // ── Computed Insights ─────────────────────────────────────
   const insights = useMemo(() => {
     if (!yearlyTrend.length || !stats || !growthData.length) return {};
@@ -511,6 +529,46 @@ function Dashboard() {
             </Insight>
           </Card>
         </div>
+
+        {/* ── Sample rows ─────────────────────────────────────── */}
+        <Card fullWidth style={{ marginTop: 24 }}>
+          <ChartTitle
+            title="Example Rows"
+            subtitle="Each row in the dataset is a hospital–year record. Below are three example rows from the latest year after cleaning (using net patient revenue and total cost)."
+          />
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8fafc', color: '#475569' }}>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #e2e8f0' }}>Year</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #e2e8f0' }}>Hospital Name</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #e2e8f0' }}>Ownership</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e2e8f0' }}>Beds</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e2e8f0' }}>Net Revenue ($M)</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e2e8f0' }}>Total Cost ($M)</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e2e8f0' }}>Margin %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exampleRows.map((row, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                    <td style={{ padding: '6px 10px' }}>{row.year}</td>
+                    <td style={{ padding: '6px 10px' }}>{row.name}</td>
+                    <td style={{ padding: '6px 10px' }}>{row.type}</td>
+                    <td style={{ padding: '6px 10px', textAlign: 'right' }}>{fmtNum(row.beds)}</td>
+                    <td style={{ padding: '6px 10px', textAlign: 'right' }}>${row.revenueM.toFixed(1)}</td>
+                    <td style={{ padding: '6px 10px', textAlign: 'right' }}>${row.costM.toFixed(1)}</td>
+                    <td style={{ padding: '6px 10px', textAlign: 'right' }}>{row.margin.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p style={{ marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+            Columns shown: report year (<code>ayear</code>), hospital name (<code>hospital_name</code>), control type (<code>typ_control</code> mapped to ownership),
+            total beds (<code>beds_total</code>), net patient revenue (<code>netpatrev</code>), total cost (<code>totcost</code>), and calculated profit margin.
+          </p>
+        </Card>
 
         {/* ── Footer ─────────────────────────────────────────── */}
         <div style={{ marginTop: 36, padding: '22px 28px', backgroundColor: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', fontSize: 13, color: '#64748b', lineHeight: 1.7 }}>
