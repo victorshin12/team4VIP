@@ -111,7 +111,7 @@ function Dashboard() {
       by[y].marginSum += r.margin; by[y].count += 1;
     });
     return Object.values(by)
-      .map(d => ({ year: d.year, revenue: d.rev / 1e9, cost: d.cost / 1e9, avgMargin: d.marginSum / d.count, hospitalCount: d.count }))
+      .map(d => ({ year: d.year, revenue: d.rev / 1e9, cost: d.cost / 1e9, avgRevPerHospital: d.rev / d.count / 1e6, hospitalCount: d.count }))
       .sort((a, b) => a.year - b.year);
   }, [data]);
 
@@ -279,27 +279,20 @@ function Dashboard() {
             </Insight>
           </Card>
 
-          {/* ═══ 2. Average Profit Margin Trend ═══ */}
+          {/* ═══ 2. Average Revenue per Hospital ═══ */}
           <Card>
-            <ChartTitle title="Average Profit Margin Trend" subtitle="Mean (revenue − cost) ÷ revenue across all hospitals, by year. The dashed red line marks break-even (0%)." />
+            <ChartTitle title="Average Revenue per Hospital" subtitle="Mean total revenue per reporting hospital each year, in millions of dollars. Shows how individual hospitals have grown over time." />
             <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={yearlyTrend} margin={{ top: 10, right: 20, left: 15, bottom: 10 }}>
-                <defs>
-                  <linearGradient id="marginGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+              <BarChart data={yearlyTrend} margin={{ top: 10, right: 20, left: 15, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={v => `${Math.round(Number(v))}%`} tick={{ fontSize: 11 }} width={45} />
-                <Tooltip formatter={v => `${Number(v).toFixed(2)}%`} />
-                <ReferenceLine y={0} stroke="#dc2626" strokeDasharray="4 4" />
-                <Area type="monotone" dataKey="avgMargin" stroke="#2563eb" fill="url(#marginGrad)" strokeWidth={2.5} name="Avg Margin %" dot={false} />
-              </AreaChart>
+                <YAxis tickFormatter={v => `$${Math.round(+v)}M`} tick={{ fontSize: 11 }} width={55} />
+                <Tooltip formatter={(v) => [`$${(+v).toFixed(1)}M`, 'Avg Revenue']} />
+                <Bar dataKey="avgRevPerHospital" fill="#2563eb" name="Avg Revenue ($M)" radius={[3, 3, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
             <Insight>
-              Margins reflect whether hospitals cover their costs on average. A downward trend indicates rising costs outpacing revenue. Sustained negative margins would signal systemic financial distress across the industry.
+              While chart 1 shows total industry revenue (which includes growth from more hospitals reporting), this chart isolates the per-hospital average. A consistent upward trend confirms that individual hospitals are generating more revenue year over year — driven by rising prices, expanded services, and higher patient acuity.
             </Insight>
           </Card>
 
