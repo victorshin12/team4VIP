@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import Papa from 'papaparse';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
@@ -57,43 +57,79 @@ const ScatterTip = ({ payload, fields }) => {
   );
 };
 
-// ─── Dashboard ───────────────────────────────────────────────
-function Dashboard() {
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+// ─── HCRIS CSV: parse once, reuse across tab switches / remounts ───
+let hcrisRowsCache = null;
+let hcrisRowsLoadPromise = null;
+
+function processHcrisRows(rawRows) {
+  // netpatrev = net patient revenue (actual collections); totcost = operating cost
+  return rawRows
+    .filter(r => {
+      const rev = parseFloat(r.netpatrev);
+      const cost = parseFloat(r.totcost);
+      return r.ayear && !isNaN(rev) && !isNaN(cost) && rev > 0 && cost > 0;
+    })
+    .map(r => {
+      const rev = parseFloat(r.netpatrev);
+      const cost = parseFloat(r.totcost);
+      const margin = ((rev - cost) / rev) * 100;
+      return {
+        ...r,
+        revenue: rev,
+        cost: cost,
+        beds_total: parseFloat(r.beds_total) || 0,
+        margin: Math.max(-200, Math.min(200, margin)),
+        marginRaw: margin,
+        ownershipCategory: OWNERSHIP_CATEGORY[r.typ_control] || 'Unknown',
+      };
+    });
+}
+
+function loadHcrisRows() {
+  if (hcrisRowsCache) return Promise.resolve(hcrisRowsCache);
+  if (hcrisRowsLoadPromise) return hcrisRowsLoadPromise;
+  hcrisRowsLoadPromise = new Promise((resolve, reject) => {
+    Papa.parse('/hcris_hospyear.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        hcrisRowsCache = processHcrisRows(results.data);
+        hcrisRowsLoadPromise = null;
+        resolve(hcrisRowsCache);
+      },
+      error: (err) => {
+        hcrisRowsLoadPromise = null;
+        reject(err);
+      },
+    });
+  });
+  return hcrisRowsLoadPromise;
+}
+
+// ─── Hospital Cost Report tab ───────────────────────────────
+function HospitalCostReportTab() {
+  const [data, setData] = useState(() => hcrisRowsCache ?? []);
+  const [loading, setLoading] = useState(() => hcrisRowsCache == null);
 
   useEffect(() => {
-    Papa.parse('/hcris_hospyear.csv', {
-      download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
-      complete: (results) => {
-        const processed = results.data
-          .filter(r => {
-            // Use netpatrev (net patient revenue) — the actual revenue collected
-            // tottotrev is gross charges (list prices), which are 3-5x higher and misleading
-            const rev = parseFloat(r.netpatrev);
-            const cost = parseFloat(r.totcost);
-            return r.ayear && !isNaN(rev) && !isNaN(cost) && rev > 0 && cost > 0;
-          })
-          .map(r => {
-            const rev = parseFloat(r.netpatrev);
-            const cost = parseFloat(r.totcost);
-            const margin = ((rev - cost) / rev) * 100;
-            return {
-              ...r,
-              revenue: rev,
-              cost: cost,
-              beds_total: parseFloat(r.beds_total) || 0,
-              // Clamp margin to -200..200 to avoid extreme outliers polluting averages
-              margin: Math.max(-200, Math.min(200, margin)),
-              marginRaw: margin,
-              ownershipCategory: OWNERSHIP_CATEGORY[r.typ_control] || 'Unknown',
-            };
-          });
-        setData(processed);
+    if (hcrisRowsCache) {
+      setData(hcrisRowsCache);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    loadHcrisRows()
+      .then((rows) => {
+        if (cancelled) return;
+        setData(rows);
         setLoading(false);
-      },
-      error: () => setLoading(false),
-    });
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // ── Stats ──────────────────────────────────────────────────
@@ -579,4 +615,4 @@ function Dashboard() {
   );
 }
 
-export default Dashboard;
+export default memo(HospitalCostReportTab);
