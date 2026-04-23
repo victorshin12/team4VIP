@@ -1,4 +1,4 @@
-/* App-level styles — tab shell is light; each tab owns its layout */
+/* App-level styles: tab shell is light; each tab owns its layout */
 #root {
   margin: 0;
   padding: 0;

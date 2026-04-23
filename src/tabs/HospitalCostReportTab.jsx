@@ -29,8 +29,10 @@ const Card = ({ children, fullWidth, style }) => (
 
 const ChartTitle = ({ title, subtitle }) => (
   <div style={{ marginBottom: 14 }}>
-    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{title}</h2>
-    {subtitle && <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>{subtitle}</p>}
+    <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1e293b', letterSpacing: '-0.01em' }}>{title}</h2>
+    {subtitle && (
+      <p style={{ margin: '6px 0 0', fontSize: 15, color: '#64748b', lineHeight: 1.5 }}>{subtitle}</p>
+    )}
   </div>
 );
 
@@ -291,7 +293,7 @@ function HospitalCostReportTab() {
     const costGrowthTotal = ((last.cost - first.cost) / first.cost * 100).toFixed(0);
     const profitableCount = data.filter(d => d.ayear === stats.maxYear && d.marginRaw > 0 && d.marginRaw < 100).length;
     const totalLatest = data.filter(d => d.ayear === stats.maxYear && d.marginRaw > -100 && d.marginRaw < 100).length;
-    const profitablePct = totalLatest > 0 ? ((profitableCount / totalLatest) * 100).toFixed(1) : '—';
+    const profitablePct = totalLatest > 0 ? ((profitableCount / totalLatest) * 100).toFixed(1) : 'N/A';
     const maxG = growthData.reduce((m, d) => d.revenueGrowth > m.revenueGrowth ? d : m, growthData[0]);
     const minG = growthData.reduce((m, d) => d.revenueGrowth < m.revenueGrowth ? d : m, growthData[0]);
     return { revGrowthTotal, costGrowthTotal, profitablePct, maxG, minG };
@@ -391,7 +393,7 @@ function HospitalCostReportTab() {
               </BarChart>
             </ResponsiveContainer>
             <Insight>
-              This isolates per-hospital revenue growth from changes in the number of reporting hospitals. A consistent upward trend confirms rising revenue per facility — driven by higher prices, expanded services, and increased patient acuity.
+              This isolates per-hospital revenue growth from changes in the number of reporting hospitals. A consistent upward trend confirms rising revenue per facility, driven by higher prices, expanded services, and increased patient acuity.
             </Insight>
           </Card>
 
@@ -423,7 +425,7 @@ function HospitalCostReportTab() {
           <Card fullWidth>
             <ChartTitle
               title={`Average Revenue & Cost by Ownership Type (${stats.maxYear})`}
-              subtitle="CMS classifies hospitals into three ownership categories: Nonprofit (voluntary, church-affiliated or other nonprofit), For-Profit (proprietary — corporations, individuals, partnerships), and Government (federal, state, county, city, hospital districts). The gap between blue and gray bars reveals each category's typical surplus or deficit."
+              subtitle="CMS classifies hospitals into three ownership categories: Nonprofit (voluntary, church-affiliated or other nonprofit), For-Profit (proprietary: corporations, individuals, partnerships), and Government (federal, state, county, city, hospital districts). The gap between blue and gray bars reveals each category's typical surplus or deficit."
             />
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={ownershipData} margin={{ top: 10, right: 30, left: 25, bottom: 10 }}>
@@ -483,7 +485,7 @@ function HospitalCostReportTab() {
             </ScatterChart>
           </ResponsiveContainer>
             <Insight>
-              Hospitals near the diagonal have revenue ≈ cost (thin margins). Points above the line operate at a loss — their costs exceed collections. Points below have a surplus. The tight clustering confirms the thin-margin nature of hospital operations.
+              Hospitals near the diagonal have revenue ≈ cost (thin margins). Points above the line operate at a loss; their costs exceed collections. Points below have a surplus. The tight clustering confirms the thin-margin nature of hospital operations.
             </Insight>
           </Card>
 
@@ -491,7 +493,7 @@ function HospitalCostReportTab() {
           <Card>
             <ChartTitle
               title={`Hospital Size Distribution (${stats.maxYear})`}
-              subtitle="Number of hospitals by total licensed bed count"
+              subtitle="Number of Hospitals by Total Licensed Bed Count"
             />
             <ResponsiveContainer width="100%" height={360}>
               <BarChart data={bedDistribution} margin={{ top: 10, right: 20, left: 15, bottom: 10 }}>
@@ -503,7 +505,7 @@ function HospitalCostReportTab() {
             </BarChart>
           </ResponsiveContainer>
             <Insight>
-              The distribution is heavily right-skewed — the vast majority of U.S. hospitals have fewer than 200 beds. Large medical centers with 500+ beds are relatively rare but account for a disproportionate share of total revenue and patient volume.
+              The distribution is heavily right-skewed: the vast majority of U.S. hospitals have fewer than 200 beds. Large medical centers with 500+ beds are relatively rare but account for a disproportionate share of total revenue and patient volume.
             </Insight>
           </Card>
 
@@ -511,7 +513,7 @@ function HospitalCostReportTab() {
           <Card fullWidth>
             <ChartTitle
               title={`Profit Margin Distribution (${stats.maxYear})`}
-              subtitle={`How are hospital margins spread? ${insights.profitablePct || '—'}% of hospitals had positive margins. Margin = (net revenue − cost) ÷ net revenue. Hospitals with extreme margins (>100% or <-100%) are excluded as data anomalies.`}
+              subtitle={`How are hospital margins spread? ${insights.profitablePct || 'N/A'}% of hospitals had positive margins. Margin = (net revenue − cost) ÷ net revenue. Hospitals with extreme margins (>100% or <-100%) are excluded as data anomalies.`}
             />
             <ResponsiveContainer width="100%" height={340}>
               <BarChart data={marginDistribution} margin={{ top: 10, right: 30, left: 15, bottom: 50 }}>
@@ -527,7 +529,7 @@ function HospitalCostReportTab() {
               </BarChart>
           </ResponsiveContainer>
             <Insight>
-              🔴 Red bars = hospitals operating at a loss · 🟢 Green bars = profitable hospitals. About <strong>{insights.profitablePct || '—'}%</strong> had positive margins in {stats.maxYear}. Many hospitals operate on razor-thin margins, and a significant share are financially underwater.
+              🔴 Red bars = hospitals operating at a loss · 🟢 Green bars = profitable hospitals. About <strong>{insights.profitablePct || 'N/A'}%</strong> had positive margins in {stats.maxYear}. Many hospitals operate on razor-thin margins, and a significant share are financially underwater.
             </Insight>
           </Card>
 
@@ -608,7 +610,7 @@ function HospitalCostReportTab() {
 
         {/* ── Footer ─────────────────────────────────────────── */}
         <div style={{ marginTop: 36, padding: '22px 28px', backgroundColor: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', fontSize: 13, color: '#64748b', lineHeight: 1.7 }}>
-          <strong style={{ color: '#1e293b' }}>About this data:</strong> This dashboard uses <strong>net patient revenue</strong> (actual payments received after contractual adjustments with insurers) — not gross charges, which can be 3–5× higher and misleading. Total cost reflects actual operating expenditures. Profit margin = (Net Revenue − Total Cost) / Net Revenue. Hospitals with extreme margins (beyond ±100%) are excluded from margin averages as data anomalies. Data sourced from CMS HCRIS hospital-year files.
+          <strong style={{ color: '#1e293b' }}>About this data:</strong> This dashboard uses <strong>net patient revenue</strong> (actual payments received after contractual adjustments with insurers), not gross charges, which can be 3–5× higher and misleading. Total cost reflects actual operating expenditures. Profit margin = (Net Revenue − Total Cost) / Net Revenue. Hospitals with extreme margins (beyond ±100%) are excluded from margin averages as data anomalies. Data sourced from CMS HCRIS hospital-year files.
         </div>
       </div>
     </div>
