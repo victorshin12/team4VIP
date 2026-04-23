@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import HospitalCostReportTab from './tabs/HospitalCostReportTab'
 import HospitalConsolidationTab from './tabs/HospitalConsolidationTab'
+import ChangeOfOwnershipTab from './tabs/ChangeOfOwnershipTab'
+import MedicarePartBGeoServicesTab from './tabs/MedicarePartBGeoServicesTab'
 import { TAB_BAR_APPROX_PX } from './tabs/tabConstants'
 import './App.css'
 
 const TABS = [
   { id: 'cost-report', panelId: 'panel-cost-report', label: 'Hospital Cost Report Analysis' },
   { id: 'consolidation', panelId: 'panel-consolidation', label: 'Hospital Consolidation Effects' },
+  { id: 'change-ownership', panelId: 'panel-change-ownership', label: 'Change Of Ownership' },
+  { id: 'mup-geo-services', panelId: 'panel-mup-geo-services', label: 'Medicare Part B Geo Services' },
 ]
 
 /** Keep inactive panels in layout with real width/height so Recharts does not reset when switching tabs. */
@@ -115,6 +119,24 @@ function App() {
           style={tabPanelStyle(activeTab === 'consolidation')}
         >
           <HospitalConsolidationTab />
+        </div>
+        <div
+          role="tabpanel"
+          id="panel-change-ownership"
+          aria-labelledby="tab-change-ownership"
+          aria-hidden={activeTab !== 'change-ownership'}
+          style={tabPanelStyle(activeTab === 'change-ownership')}
+        >
+          <ChangeOfOwnershipTab />
+        </div>
+        <div
+          role="tabpanel"
+          id="panel-mup-geo-services"
+          aria-labelledby="tab-mup-geo-services"
+          aria-hidden={activeTab !== 'mup-geo-services'}
+          style={tabPanelStyle(activeTab === 'mup-geo-services')}
+        >
+          <MedicarePartBGeoServicesTab />
         </div>
       </div>
     </div>

@@ -1,45 +1,46 @@
-# Hospital Cost Report Visualization Dashboard
+# Healthcare Dashboard
 
-A React application for visualizing hospital cost report data (HCRIS) with multiple interactive charts and graphs.
+Interactive React dashboard for:
+- Hospital cost reports (HCRIS)
+- Change of ownership (CHOW)
+- Medicare Part B physician/professional services by geography (MUP)
 
 ## Setup
 
-1. **Install dependencies:**
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. **Copy the CSV file to the public folder:**
-   ```bash
-   cp /Users/victorshin/Downloads/hospital-cost-report/hcris_hospyear.csv public/
-   ```
-   Or manually copy `hcris_hospyear.csv` to the `public/` directory.
+2. Place source CSVs in `public/`:
+   - `hcris_hospyear.csv`
+   - `Hospital_CHOW_2026.01.02.csv`
+   - `MUP_PHY_R25_P05_V20_D23_Geo.csv`
 
-3. **Start the development server:**
+3. Generate precomputed data artifacts:
+   ```bash
+   npm run precompute:data
+   ```
+
+4. Start development server:
    ```bash
    npm run dev
    ```
 
-## Features
+## Precompute Workflow
 
-The dashboard includes 8 different visualizations:
+This project uses a precompute pipeline so the browser does not parse very large CSV files at runtime.
 
-1. **Revenue & Cost Trends** - Area chart showing total revenue and cost over time (1997-2020)
-2. **Top Hospitals by Revenue** - Horizontal bar chart of top 10 hospitals
-3. **Revenue vs Cost Relationship** - Scatter plot showing correlation
-4. **Bed Capacity Distribution** - Bar chart of hospital bed size distribution
-5. **Revenue by Hospital Type** - Pie chart showing average revenue by control type
-6. **Revenue Efficiency Trend** - Area chart of revenue per bed over time
-7. **Discharges vs Revenue** - Scatter plot of inpatient discharges vs revenue
-8. **Year-over-Year Growth** - Line chart showing revenue growth percentage
+- Script: `scripts/precompute_data.py`
+- Command: `npm run precompute:data`
+- Outputs:
+  - `public/precomputed/hospital_cost_report.json`
+  - `public/precomputed/change_ownership.json`
+  - `public/precomputed/mup_geo_services.json`
+  - `public/precomputed/consolidation_effects.json`
 
-## Technologies
+Run the precompute command whenever source CSVs change, and before production deploy/build.
 
-- React 19
-- Vite
-- Recharts (for visualizations)
-- PapaParse (for CSV parsing)
+## Deployment Note
 
-## Data Source
-
-HCRIS (Healthcare Cost Report Information System) hospital-year aggregated data.
+If raw CSVs are too large for Git hosting, keep them outside Git and generate/version only `public/precomputed/*.json` artifacts for deployment.

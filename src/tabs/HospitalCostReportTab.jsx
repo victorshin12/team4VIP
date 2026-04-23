@@ -1,18 +1,9 @@
 import { useState, useEffect, useMemo, memo } from 'react';
-import Papa from 'papaparse';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   AreaChart, Area, ComposedChart, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine
 } from 'recharts';
-
-// ─── Constants ───────────────────────────────────────────────
-const OWNERSHIP_CATEGORY = {
-  1: 'Nonprofit', 2: 'Nonprofit',
-  3: 'For-Profit', 4: 'For-Profit', 5: 'For-Profit', 6: 'For-Profit',
-  7: 'Government', 8: 'Government', 9: 'Government', 10: 'Government',
-  11: 'Government', 12: 'Government', 13: 'Government',
-};
 
 // ─── Helpers ─────────────────────────────────────────────────
 const fmtNum = (v) => Number(v).toLocaleString();
@@ -61,49 +52,24 @@ const ScatterTip = ({ payload, fields }) => {
 let hcrisRowsCache = null;
 let hcrisRowsLoadPromise = null;
 
-function processHcrisRows(rawRows) {
-  // netpatrev = net patient revenue (actual collections); totcost = operating cost
-  return rawRows
-    .filter(r => {
-      const rev = parseFloat(r.netpatrev);
-      const cost = parseFloat(r.totcost);
-      return r.ayear && !isNaN(rev) && !isNaN(cost) && rev > 0 && cost > 0;
-    })
-    .map(r => {
-      const rev = parseFloat(r.netpatrev);
-      const cost = parseFloat(r.totcost);
-      const margin = ((rev - cost) / rev) * 100;
-      return {
-        ...r,
-        revenue: rev,
-        cost: cost,
-        beds_total: parseFloat(r.beds_total) || 0,
-        margin: Math.max(-200, Math.min(200, margin)),
-        marginRaw: margin,
-        ownershipCategory: OWNERSHIP_CATEGORY[r.typ_control] || 'Unknown',
-      };
-    });
-}
-
 function loadHcrisRows() {
   if (hcrisRowsCache) return Promise.resolve(hcrisRowsCache);
   if (hcrisRowsLoadPromise) return hcrisRowsLoadPromise;
   hcrisRowsLoadPromise = new Promise((resolve, reject) => {
-    Papa.parse('/hcris_hospyear.csv', {
-      download: true,
-      header: true,
-      dynamicTyping: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        hcrisRowsCache = processHcrisRows(results.data);
+    fetch('/precomputed/hospital_cost_report.json')
+      .then((response) => {
+        if (!response.ok) throw new Error(`Precomputed HCRIS fetch failed (${response.status})`);
+        return response.json();
+      })
+      .then((payload) => {
+        hcrisRowsCache = payload?.rows || [];
         hcrisRowsLoadPromise = null;
         resolve(hcrisRowsCache);
-      },
-      error: (err) => {
+      })
+      .catch((err) => {
         hcrisRowsLoadPromise = null;
         reject(err);
-      },
-    });
+      });
   });
   return hcrisRowsLoadPromise;
 }
@@ -114,11 +80,7 @@ function HospitalCostReportTab() {
   const [loading, setLoading] = useState(() => hcrisRowsCache == null);
 
   useEffect(() => {
-    if (hcrisRowsCache) {
-      setData(hcrisRowsCache);
-      setLoading(false);
-      return;
-    }
+    if (!loading) return;
     let cancelled = false;
     loadHcrisRows()
       .then((rows) => {
@@ -130,7 +92,7 @@ function HospitalCostReportTab() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [loading]);
 
   // ── Stats ──────────────────────────────────────────────────
   const stats = useMemo(() => {

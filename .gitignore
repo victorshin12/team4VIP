@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Large local source datasets (use precomputed JSON for deploy)
+public/hcris_hospyear.csv
+public/Hospital_CHOW_2026.01.02.csv
+public/MUP_PHY_R25_P05_V20_D23_Geo.csv
