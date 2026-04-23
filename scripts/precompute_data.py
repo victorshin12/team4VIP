@@ -279,17 +279,28 @@ OWNERSHIP_CATEGORY = {
     11: "Government", 12: "Government", 13: "Government",
 }
 
+CPI_U_BY_YEAR = {
+    1980: 82.4, 1981: 90.9, 1982: 96.5, 1983: 99.6, 1984: 103.9, 1985: 107.6, 1986: 109.6, 1987: 113.6,
+    1988: 118.3, 1989: 124.0, 1990: 130.7, 1991: 136.2, 1992: 140.3, 1993: 144.5, 1994: 148.2, 1995: 152.4,
+    1996: 156.9, 1997: 160.5, 1998: 163.0, 1999: 166.6, 2000: 172.2, 2001: 177.1, 2002: 179.9, 2003: 184.0,
+    2004: 188.9, 2005: 195.3, 2006: 201.6, 2007: 207.3, 2008: 215.3, 2009: 214.5, 2010: 218.1, 2011: 224.9,
+    2012: 229.6, 2013: 232.9, 2014: 236.7, 2015: 237.0, 2016: 240.0, 2017: 245.1, 2018: 251.1, 2019: 255.7,
+    2020: 258.8, 2021: 271.0, 2022: 292.7, 2023: 305.4, 2024: 314.5, 2025: 322.0,
+}
+
 
 def build_hospital_cost_report():
     path = PUBLIC_DIR / "hcris_hospyear.csv"
     raw_rows = read_csv_rows(path)
     rows = []
+    years_seen = set()
     for row in raw_rows:
         ayear = to_year(row.get("ayear"))
         revenue = to_float(row.get("netpatrev"))
         cost = to_float(row.get("totcost"))
         if ayear is None or revenue is None or cost is None or revenue <= 0 or cost <= 0:
             continue
+        years_seen.add(ayear)
         margin_raw = ((revenue - cost) / revenue) * 100
         typ_control = to_year(row.get("typ_control"))
         rows.append(
@@ -305,11 +316,27 @@ def build_hospital_cost_report():
                 "ownershipCategory": OWNERSHIP_CATEGORY.get(typ_control, "Unknown"),
             }
         )
+
+    base_year = max((y for y in years_seen if y in CPI_U_BY_YEAR), default=None)
+    base_cpi = CPI_U_BY_YEAR.get(base_year) if base_year is not None else None
+
+    for row in rows:
+        year_cpi = CPI_U_BY_YEAR.get(row["ayear"])
+        factor = (base_cpi / year_cpi) if (base_cpi and year_cpi) else 1.0
+        row["revenueReal"] = row["revenue"] * factor
+        row["costReal"] = row["cost"] * factor
+
     return {
         "generatedAt": datetime.utcnow().isoformat() + "Z",
         "sourceFile": str(path.name),
         "sourceRowCount": len(raw_rows),
         "normalizedRowCount": len(rows),
+        "inflation": {
+            "method": "CPI-U annual average",
+            "baseYear": base_year,
+            "baseCpi": base_cpi,
+            "adjustedFields": ["revenueReal", "costReal"],
+        },
         "rows": rows,
     }
 

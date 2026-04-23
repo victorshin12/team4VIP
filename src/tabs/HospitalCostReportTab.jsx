@@ -49,11 +49,11 @@ const ScatterTip = ({ payload, fields }) => {
 };
 
 // ─── HCRIS CSV: parse once, reuse across tab switches / remounts ───
-let hcrisRowsCache = null;
+let hcrisPayloadCache = null;
 let hcrisRowsLoadPromise = null;
 
 function loadHcrisRows() {
-  if (hcrisRowsCache) return Promise.resolve(hcrisRowsCache);
+  if (hcrisPayloadCache) return Promise.resolve(hcrisPayloadCache);
   if (hcrisRowsLoadPromise) return hcrisRowsLoadPromise;
   hcrisRowsLoadPromise = new Promise((resolve, reject) => {
     fetch('/precomputed/hospital_cost_report.json')
@@ -62,9 +62,12 @@ function loadHcrisRows() {
         return response.json();
       })
       .then((payload) => {
-        hcrisRowsCache = payload?.rows || [];
+        hcrisPayloadCache = {
+          rows: payload?.rows || [],
+          inflation: payload?.inflation || null,
+        };
         hcrisRowsLoadPromise = null;
-        resolve(hcrisRowsCache);
+        resolve(hcrisPayloadCache);
       })
       .catch((err) => {
         hcrisRowsLoadPromise = null;
@@ -76,16 +79,19 @@ function loadHcrisRows() {
 
 // ─── Hospital Cost Report tab ───────────────────────────────
 function HospitalCostReportTab() {
-  const [data, setData] = useState(() => hcrisRowsCache ?? []);
-  const [loading, setLoading] = useState(() => hcrisRowsCache == null);
+  const [data, setData] = useState(() => hcrisPayloadCache?.rows ?? []);
+  const [inflationMeta, setInflationMeta] = useState(() => hcrisPayloadCache?.inflation ?? null);
+  const [adjustForInflation, setAdjustForInflation] = useState(false);
+  const [loading, setLoading] = useState(() => hcrisPayloadCache == null);
 
   useEffect(() => {
     if (!loading) return;
     let cancelled = false;
     loadHcrisRows()
-      .then((rows) => {
+      .then((payload) => {
         if (cancelled) return;
-        setData(rows);
+        setData(payload.rows || []);
+        setInflationMeta(payload.inflation || null);
         setLoading(false);
       })
       .catch(() => {
@@ -93,6 +99,10 @@ function HospitalCostReportTab() {
       });
     return () => { cancelled = true; };
   }, [loading]);
+
+  const revKey = adjustForInflation ? 'revenueReal' : 'revenue';
+  const costKey = adjustForInflation ? 'costReal' : 'cost';
+  const moneyLabel = adjustForInflation ? ` (${inflationMeta?.baseYear || 'base-year'} dollars)` : '';
 
   // ── Stats ──────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -104,13 +114,13 @@ function HospitalCostReportTab() {
     const latest = data.filter(d => d.ayear === maxYear);
     // Use only hospitals with reasonable margins for avg margin calc
     const reasonableLatest = latest.filter(d => d.marginRaw > -100 && d.marginRaw < 100);
-    const avgRevLatest = latest.reduce((s, d) => s + d.revenue, 0) / latest.length;
+    const avgRevLatest = latest.reduce((s, d) => s + (d[revKey] ?? d.revenue), 0) / latest.length;
     const avgMarginLatest = reasonableLatest.length > 0
       ? reasonableLatest.reduce((s, d) => s + d.marginRaw, 0) / reasonableLatest.length
       : 0;
-    const totalRevLatest = latest.reduce((s, d) => s + d.revenue, 0);
+    const totalRevLatest = latest.reduce((s, d) => s + (d[revKey] ?? d.revenue), 0);
     return { minYear, maxYear, uniqueHospitals, totalRecords: data.length, avgRevLatest, avgMarginLatest, totalRevLatest, latestCount: latest.length };
-  }, [data]);
+  }, [data, revKey]);
 
   // ── 1. Yearly Trend ────────────────────────────────────────
   const yearlyTrend = useMemo(() => {
@@ -119,8 +129,8 @@ function HospitalCostReportTab() {
     data.forEach(r => {
       const y = r.ayear;
       if (!by[y]) by[y] = { year: y, rev: 0, cost: 0, count: 0, marginSum: 0, marginCount: 0 };
-      by[y].rev += r.revenue;
-      by[y].cost += r.cost;
+      by[y].rev += r[revKey] ?? r.revenue;
+      by[y].cost += r[costKey] ?? r.cost;
       by[y].count += 1;
       // Only include reasonable margins in averages
       if (r.marginRaw > -100 && r.marginRaw < 100) {
@@ -138,7 +148,7 @@ function HospitalCostReportTab() {
         hospitalCount: d.count,
       }))
       .sort((a, b) => a.year - b.year);
-  }, [data]);
+  }, [data, revKey, costKey]);
 
   // ── 2. YoY Growth ─────────────────────────────────────────
   const growthData = useMemo(() => {
@@ -158,8 +168,8 @@ function HospitalCostReportTab() {
       const c = r.ownershipCategory;
       if (c === 'Unknown') return;
       if (!by[c]) by[c] = { category: c, revSum: 0, costSum: 0, marginSum: 0, marginCount: 0, count: 0 };
-      by[c].revSum += r.revenue;
-      by[c].costSum += r.cost;
+      by[c].revSum += r[revKey] ?? r.revenue;
+      by[c].costSum += r[costKey] ?? r.cost;
       by[c].count += 1;
       if (r.marginRaw > -100 && r.marginRaw < 100) {
         by[c].marginSum += r.marginRaw;
@@ -173,15 +183,25 @@ function HospitalCostReportTab() {
       avgMargin: d.marginCount > 0 ? d.marginSum / d.marginCount : 0,
       count: d.count,
     })).sort((a, b) => b.avgRevenue - a.avgRevenue);
-  }, [data, stats]);
+  }, [data, stats, revKey, costKey]);
 
   // ── 4. Revenue vs Cost Scatter ─────────────────────────────
   const scatterData = useMemo(() => {
     if (!data.length || !stats) return [];
     return data
-      .filter(d => d.ayear === stats.maxYear && d.revenue > 1e6 && d.cost > 1e6 && d.revenue < 15e9 && d.cost < 15e9)
-      .map(d => ({ revenue: d.revenue / 1e6, cost: d.cost / 1e6, name: d.hospital_name, beds: d.beds_total, category: d.ownershipCategory }));
-  }, [data, stats]);
+      .filter((d) => {
+        const revenue = d[revKey] ?? d.revenue;
+        const cost = d[costKey] ?? d.cost;
+        return d.ayear === stats.maxYear && revenue > 1e6 && cost > 1e6 && revenue < 15e9 && cost < 15e9;
+      })
+      .map(d => ({
+        revenue: (d[revKey] ?? d.revenue) / 1e6,
+        cost: (d[costKey] ?? d.cost) / 1e6,
+        name: d.hospital_name,
+        beds: d.beds_total,
+        category: d.ownershipCategory,
+      }));
+  }, [data, stats, revKey, costKey]);
 
   // ── 5. Bed Distribution ───────────────────────────────────
   const bedDistribution = useMemo(() => {
@@ -201,15 +221,15 @@ function HospitalCostReportTab() {
   const topHospitals = useMemo(() => {
     if (!data.length || !stats) return [];
     return data
-      .filter(d => d.ayear === stats.maxYear && d.hospital_name && d.revenue > 0)
-      .sort((a, b) => b.revenue - a.revenue)
+      .filter(d => d.ayear === stats.maxYear && d.hospital_name && (d[revKey] ?? d.revenue) > 0)
+      .sort((a, b) => (b[revKey] ?? b.revenue) - (a[revKey] ?? a.revenue))
       .slice(0, 10)
       .map(d => ({
         name: d.hospital_name.length > 35 ? d.hospital_name.substring(0, 35) + '…' : d.hospital_name,
-        fullName: d.hospital_name, revenue: d.revenue / 1e6, cost: d.cost / 1e6,
+        fullName: d.hospital_name, revenue: (d[revKey] ?? d.revenue) / 1e6, cost: (d[costKey] ?? d.cost) / 1e6,
         margin: d.marginRaw, beds: d.beds_total, type: d.ownershipCategory,
       }));
-  }, [data, stats]);
+  }, [data, stats, revKey, costKey]);
 
   // ── 7. Margin Distribution ────────────────────────────────
   const marginDistribution = useMemo(() => {
@@ -238,11 +258,11 @@ function HospitalCostReportTab() {
         name: d.hospital_name,
         type: d.ownershipCategory,
         beds: d.beds_total,
-        revenueM: d.revenue / 1e6,
-        costM: d.cost / 1e6,
+        revenueM: (d[revKey] ?? d.revenue) / 1e6,
+        costM: (d[costKey] ?? d.cost) / 1e6,
         margin: d.marginRaw,
       }));
-  }, [data, stats]);
+  }, [data, stats, revKey, costKey]);
 
   // ── Computed Insights ─────────────────────────────────────
   const insights = useMemo(() => {
@@ -289,6 +309,15 @@ function HospitalCostReportTab() {
           <p style={{ margin: '8px 0 0', fontSize: 15, color: '#94a3b8', lineHeight: 1.5 }}>
             HCRIS (Healthcare Cost Report Information System) · {stats.minYear}–{stats.maxYear} · {fmtNum(stats.uniqueHospitals)} unique hospitals · {fmtNum(stats.totalRecords)} hospital-year records
           </p>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13, color: '#cbd5e1', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={adjustForInflation}
+              onChange={(e) => setAdjustForInflation(e.target.checked)}
+              style={{ accentColor: '#3b82f6' }}
+            />
+            Adjust dollars for inflation{inflationMeta?.baseYear ? ` (${inflationMeta.baseYear} dollars)` : ''}
+          </label>
         </div>
       </header>
 
@@ -298,8 +327,8 @@ function HospitalCostReportTab() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 32 }}>
           {[
             { label: 'Hospitals Tracked', value: fmtNum(stats.uniqueHospitals), sub: `${stats.minYear}–${stats.maxYear}`, color: '#2563eb' },
-            { label: `Net Revenue (${stats.maxYear})`, value: totalRevDisplay, sub: `Across ${fmtNum(stats.latestCount)} hospitals`, color: '#059669' },
-            { label: 'Avg Revenue / Hospital', value: `$${(stats.avgRevLatest / 1e6).toFixed(0)}M`, sub: `In ${stats.maxYear}`, color: '#d97706' },
+            { label: `Net Revenue${moneyLabel} (${stats.maxYear})`, value: totalRevDisplay, sub: `Across ${fmtNum(stats.latestCount)} hospitals`, color: '#059669' },
+            { label: `Avg Revenue / Hospital${moneyLabel}`, value: `$${(stats.avgRevLatest / 1e6).toFixed(0)}M`, sub: `In ${stats.maxYear}`, color: '#d97706' },
             { label: 'Avg Profit Margin', value: `${stats.avgMarginLatest.toFixed(1)}%`, sub: `In ${stats.maxYear} (excl. outliers)`, color: stats.avgMarginLatest >= 0 ? '#059669' : '#dc2626' },
           ].map((kpi, i) => (
             <div key={i} style={{
@@ -320,7 +349,7 @@ function HospitalCostReportTab() {
           <Card fullWidth>
             <ChartTitle
               title="Industry Net Revenue & Cost Over Time"
-              subtitle="Aggregate annual net patient revenue and total cost across all reporting hospitals (in billions of dollars). Net patient revenue = actual payments received after insurance adjustments, not gross charges."
+              subtitle={`Aggregate annual net patient revenue and total cost across all reporting hospitals (in billions of dollars${adjustForInflation ? `, inflation-adjusted to ${inflationMeta?.baseYear || 'base year'} dollars` : ''}). Net patient revenue = actual payments received after insurance adjustments, not gross charges.`}
             />
             <ResponsiveContainer width="100%" height={380}>
               <ComposedChart data={yearlyTrend} margin={{ top: 10, right: 70, left: 25, bottom: 10 }}>
@@ -330,8 +359,8 @@ function HospitalCostReportTab() {
                 <YAxis yAxisId="right" orientation="right" tickFormatter={v => fmtNum(+v)} tick={{ fontSize: 11 }} width={55} />
                 <Tooltip formatter={(v, name) => name.includes('Count') ? fmtNum(Math.round(+v)) : `$${(+v).toFixed(1)}B`} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                <Area yAxisId="left" type="monotone" dataKey="revenue" fill="#2563eb" fillOpacity={0.12} stroke="#2563eb" strokeWidth={2} name="Net Revenue ($B)" />
-                <Area yAxisId="left" type="monotone" dataKey="cost" fill="#dc2626" fillOpacity={0.08} stroke="#dc2626" strokeWidth={2} name="Total Cost ($B)" />
+                <Area yAxisId="left" type="monotone" dataKey="revenue" fill="#2563eb" fillOpacity={0.12} stroke="#2563eb" strokeWidth={2} name={`Net Revenue ($B${adjustForInflation ? ', real' : ''})`} />
+                <Area yAxisId="left" type="monotone" dataKey="cost" fill="#dc2626" fillOpacity={0.08} stroke="#dc2626" strokeWidth={2} name={`Total Cost ($B${adjustForInflation ? ', real' : ''})`} />
                 <Line yAxisId="right" type="monotone" dataKey="hospitalCount" stroke="#d97706" strokeWidth={2} dot={false} name="Hospital Count" />
               </ComposedChart>
             </ResponsiveContainer>
@@ -342,14 +371,14 @@ function HospitalCostReportTab() {
 
           {/* ═══ 2. Average Revenue per Hospital ═══ */}
           <Card>
-            <ChartTitle title="Average Net Revenue per Hospital" subtitle="Mean net patient revenue per hospital each year (in millions). Shows how much individual hospitals collect on average." />
+            <ChartTitle title="Average Net Revenue per Hospital" subtitle={`Mean net patient revenue per hospital each year (in millions${adjustForInflation ? `, ${inflationMeta?.baseYear || 'base-year'} dollars` : ''}). Shows how much individual hospitals collect on average.`} />
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={yearlyTrend} margin={{ top: 10, right: 20, left: 15, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={v => `$${Math.round(+v)}M`} tick={{ fontSize: 11 }} width={55} />
                 <Tooltip formatter={(v) => [`$${(+v).toFixed(1)}M`, 'Avg Revenue']} />
-                <Bar dataKey="avgRevPerHospital" fill="#2563eb" name="Avg Revenue ($M)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="avgRevPerHospital" fill="#2563eb" name={`Avg Revenue ($M${adjustForInflation ? ', real' : ''})`} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
             <Insight>
@@ -385,7 +414,7 @@ function HospitalCostReportTab() {
           <Card fullWidth>
             <ChartTitle
               title={`Average Revenue & Cost by Ownership Type (${stats.maxYear})`}
-              subtitle="CMS classifies hospitals into three ownership categories: Nonprofit (voluntary, church-affiliated or other nonprofit), For-Profit (proprietary — corporations, individuals, partnerships), and Government (federal, state, county, city, hospital districts). The gap between blue and gray bars reveals each category's typical surplus or deficit."
+              subtitle={`CMS classifies hospitals into three ownership categories: Nonprofit (voluntary, church-affiliated or other nonprofit), For-Profit (proprietary — corporations, individuals, partnerships), and Government (federal, state, county, city, hospital districts).${adjustForInflation ? ` Dollars are adjusted to ${inflationMeta?.baseYear || 'base-year'} purchasing power.` : ''} The gap between blue and gray bars reveals each category's typical surplus or deficit.`}
             />
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={ownershipData} margin={{ top: 10, right: 30, left: 25, bottom: 10 }}>
@@ -408,8 +437,8 @@ function HospitalCostReportTab() {
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="avgRevenue" fill="#2563eb" name="Avg Net Revenue ($M)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="avgCost" fill="#94a3b8" name="Avg Total Cost ($M)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="avgRevenue" fill="#2563eb" name={`Avg Net Revenue ($M${adjustForInflation ? ', real' : ''})`} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="avgCost" fill="#94a3b8" name={`Avg Total Cost ($M${adjustForInflation ? ', real' : ''})`} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
             <Insight>
@@ -497,7 +526,7 @@ function HospitalCostReportTab() {
           <Card fullWidth>
             <ChartTitle
               title={`Top 10 Hospitals by Net Revenue (${stats.maxYear})`}
-              subtitle="The largest hospitals by net patient revenue. Blue = revenue, gray = cost. The gap shows each hospital's margin."
+              subtitle={`The largest hospitals by net patient revenue${adjustForInflation ? ` in ${inflationMeta?.baseYear || 'base-year'} dollars` : ''}. Blue = revenue, gray = cost. The gap shows each hospital's margin.`}
             />
             <ResponsiveContainer width="100%" height={420}>
               <BarChart data={topHospitals} layout="vertical" margin={{ top: 5, right: 30, left: 30, bottom: 5 }}>
@@ -518,8 +547,8 @@ function HospitalCostReportTab() {
                   );
                 }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="revenue" fill="#2563eb" name="Net Revenue ($M)" radius={[0, 4, 4, 0]} />
-                <Bar dataKey="cost" fill="#b0b8c4" name="Total Cost ($M)" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="revenue" fill="#2563eb" name={`Net Revenue ($M${adjustForInflation ? ', real' : ''})`} radius={[0, 4, 4, 0]} />
+                <Bar dataKey="cost" fill="#b0b8c4" name={`Total Cost ($M${adjustForInflation ? ', real' : ''})`} radius={[0, 4, 4, 0]} />
               </BarChart>
           </ResponsiveContainer>
             <Insight>
@@ -565,6 +594,7 @@ function HospitalCostReportTab() {
           <p style={{ marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
             Columns shown: report year (<code>ayear</code>), hospital name (<code>hospital_name</code>), control type (<code>typ_control</code> mapped to ownership),
             total beds (<code>beds_total</code>), net patient revenue (<code>netpatrev</code>), total cost (<code>totcost</code>), and calculated profit margin.
+            {adjustForInflation ? <> Revenue/cost figures shown above are inflation-adjusted to <code>{inflationMeta?.baseYear || 'base-year'}</code> dollars via precomputed CPI-U factors.</> : null}
           </p>
         </Card>
 
