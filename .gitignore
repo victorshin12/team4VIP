@@ -27,3 +27,4 @@ dist-ssr
 public/hcris_hospyear.csv
 public/Hospital_CHOW_2026.01.02.csv
 public/MUP_PHY_R25_P05_V20_D23_Geo.csv
+public/precomputed/hospital_cost_report.json

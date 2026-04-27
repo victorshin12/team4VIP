@@ -1836,6 +1836,9 @@ export default function HospitalConsolidationTab() {
     return `Average reported income ends ${dir} after consolidation (${pre.avgIncomeM.toFixed(1)} → ${last.avgIncomeM.toFixed(1)} $M), which supports the view that, on average, financial capacity improves heading into the latest HCRIS year.`
   }, [avgIncomeBars])
 
+  // Temporarily hide before/after chart sections.
+  const showBeforeAfterCharts = false
+
   return (
     <div
       className="hc-dashboard"
@@ -2129,16 +2132,18 @@ export default function HospitalConsolidationTab() {
             </div>
           </section>
 
-          <div className="hc-sectionIntro hc-sectionIntro--spaced" role="region" aria-label="Section 2">
-            <div className="hc-sectionIntro__kicker">Section 2 · Financial impact after consolidation</div>
-            <h2 className="hc-sectionIntro__title">What happens after consolidation?</h2>
-            <p className="hc-sectionIntro__lede">
-              Compare matched hospitals’ income pre-merger, in the merger year, immediately after, and through the
-              latest HCRIS reporting year in range.
-            </p>
-          </div>
+          {showBeforeAfterCharts && (
+            <>
+              <div className="hc-sectionIntro hc-sectionIntro--spaced" role="region" aria-label="Section 2">
+                <div className="hc-sectionIntro__kicker">Section 2 · Financial impact after consolidation</div>
+                <h2 className="hc-sectionIntro__title">What happens after consolidation?</h2>
+                <p className="hc-sectionIntro__lede">
+                  Compare matched hospitals’ income pre-merger, in the merger year, immediately after, and through the
+                  latest HCRIS reporting year in range.
+                </p>
+              </div>
 
-          <section className="hc-panel hc-panel--delay-3">
+              <section className="hc-panel hc-panel--delay-3">
             <div className="hc-card hc-chartCard">
               <div className="hc-chartHeader">
                 <h2 className="hc-chartTitle">Earnings Impact: Income Before and After Consolidation</h2>
@@ -2357,9 +2362,12 @@ export default function HospitalConsolidationTab() {
                 </div>
               )}
             </div>
-          </section>
+              </section>
+            </>
+          )}
 
-          {(revenuePerBedBeforeAfterBars.length > 0 ||
+          {showBeforeAfterCharts &&
+            (revenuePerBedBeforeAfterBars.length > 0 ||
             revenueExpenseBeforeAfterBars.length > 0 ||
             revExpPrePostScatterCombined.hasRevenue ||
             revExpPrePostScatterCombined.hasExpense) && (
@@ -2476,7 +2484,7 @@ export default function HospitalConsolidationTab() {
             </section>
           )}
 
-          {revenuePerBedBeforeAfterBars.length > 0 && (
+          {showBeforeAfterCharts && revenuePerBedBeforeAfterBars.length > 0 && (
             <section className="hc-panel hc-panel--delay-3">
               <div className="hc-card hc-chartCard">
                 <div className="hc-chartHeader">

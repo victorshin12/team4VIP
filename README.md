@@ -1,9 +1,10 @@
-# Healthcare Dashboard
+# CMS Story-Driven Platform
 
-Interactive React dashboard for:
-- Hospital cost reports (HCRIS)
-- Change of ownership (CHOW)
-- Medicare Part B physician/professional services by geography (MUP)
+Interactive React platform for:
+- Story-led CMS dataset introduction
+- Hospital cost analysis (HCRIS)
+- Ownership evolution (CHOW network)
+- Consolidation footprint exploration
 
 ## Setup
 
@@ -12,10 +13,9 @@ Interactive React dashboard for:
    npm install
    ```
 
-2. Place source CSVs in `public/`:
+2. Place source CSVs in `public/` if you want to regenerate baseline extracts:
    - `hcris_hospyear.csv`
    - `Hospital_CHOW_2026.01.02.csv`
-   - `MUP_PHY_R25_P05_V20_D23_Geo.csv`
 
 3. Generate precomputed data artifacts:
    ```bash
@@ -36,8 +36,11 @@ This project uses a precompute pipeline so the browser does not parse very large
 - Outputs:
   - `public/precomputed/hospital_cost_report.json`
   - `public/precomputed/change_ownership.json`
-  - `public/precomputed/mup_geo_services.json`
   - `public/precomputed/consolidation_effects.json`
+  - `public/precomputed/cost_analysis.json`
+  - `public/precomputed/ownership_evolution.json`
+  - `public/precomputed/consolidation_footprint.json`
+  - `public/precomputed/story_overview.json`
 
 Run the precompute command whenever source CSVs change, and before production deploy/build.
 
