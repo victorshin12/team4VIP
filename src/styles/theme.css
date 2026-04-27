@@ -146,16 +146,17 @@ a {
 }
 
 .hero-section {
-  min-height: 80vh;
+  min-height: calc(100vh - 92px);
   border: none;
   background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4.2rem 0.4rem 3.8rem;
+  padding: 2.2rem 0.4rem 4.6rem;
+  margin-bottom: 1.4rem;
   text-align: center;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .hero-content {
@@ -164,40 +165,38 @@ a {
 }
 
 .hero-content h1 {
-  font-size: clamp(2rem, 5vw, 3.5rem);
-  line-height: 1.08;
-  margin: 0.4rem 0 1.1rem;
+  font-size: clamp(2rem, 4.2vw, 3rem);
+  line-height: 1.1;
+  margin: 0 0 0.8rem;
   letter-spacing: -0.02em;
 }
 
 .hero-content p {
   color: #334155;
-  max-width: 62ch;
+  max-width: none;
   font-size: 1.05rem;
+  white-space: nowrap;
   margin-left: auto;
   margin-right: auto;
-}
-
-.hero-kicker {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #2563eb;
-  margin: 0;
 }
 
 .cta-button {
   display: inline-flex;
   margin-top: 1.2rem;
-  background: linear-gradient(90deg, #1d4ed8, #0ea5e9);
-  color: white;
-  font-weight: 700;
-  padding: 0.72rem 1.06rem;
-  transition: transform 180ms ease, filter 180ms ease;
+  background: transparent;
+  color: #1e3a8a;
+  border: 1px solid #1e3a8a;
+  border-radius: 0;
+  font-weight: 600;
+  padding: 0.58rem 0.92rem;
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
 }
 
 .cta-button:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.06);
+  transform: none;
+  background: transparent;
+  border-color: #1e3a8a;
+  color: #1e3a8a;
 }
 
 .hero-inline-metrics {
@@ -491,6 +490,14 @@ input {
   margin: 0 auto;
 }
 
+.chart-controls + .insight-box {
+  margin-top: 0.55rem;
+}
+
+.chart-observations {
+  margin-top: 0.55rem;
+}
+
 .insight-box h3 {
   margin: 0 0 0.6rem;
 }
@@ -594,6 +601,12 @@ tbody tr:hover {
 
   .hero-section {
     padding: 1.8rem 0.2rem;
+    min-height: auto;
+    margin-bottom: 0.4rem;
+  }
+
+  .hero-content p {
+    white-space: normal;
   }
 
   .story-step {

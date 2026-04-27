@@ -88,11 +88,40 @@ def build_ccn_range_table():
     categories = grouped_ccn_data.get("categories", {})
     for broad_category, records in categories.items():
         for record in records:
-            ranges.append((record["start"], record["end"], broad_category))
+            if record.get("type") != "numeric_range":
+                continue
+            ranges.append(
+                (
+                    record["start"],
+                    record["end"],
+                    broad_category,
+                    str(record.get("subtype") or "Unknown Numeric Type"),
+                )
+            )
     return ranges
 
 
 CCN_RANGE_TABLE = build_ccn_range_table()
+
+
+def build_ccn_alpha_table():
+    alpha_table = {}
+    categories = grouped_ccn_data.get("categories", {})
+    for broad_category, records in categories.items():
+        for record in records:
+            if record.get("type") != "alpha_character":
+                continue
+            code = str(record.get("code") or "").strip().upper()
+            if not code:
+                continue
+            alpha_table[code] = {
+                "category": broad_category,
+                "subtype": str(record.get("subtype") or "Unknown Special Designation"),
+            }
+    return alpha_table
+
+
+CCN_ALPHA_TABLE = build_ccn_alpha_table()
 
 OWNERSHIP_BY_TYP_CONTROL = {
     1: "Nonprofit",
@@ -112,14 +141,50 @@ OWNERSHIP_BY_TYP_CONTROL = {
 
 
 def hospital_type_for_ccn(ccn):
-    digits = "".join(ch for ch in str(ccn or "") if ch.isdigit())
-    if len(digits) < 6:
-        return "Unknown"
-    facility_code = int(digits[-4:])
-    for start, end, label in CCN_RANGE_TABLE:
-        if start <= facility_code <= end:
-            return label
+    ccn_text = "".join(ch for ch in str(ccn or "").strip().upper() if ch.isalnum())
+    if len(ccn_text) == 6 and ccn_text[2].isalpha():
+        alpha_info = CCN_ALPHA_TABLE.get(ccn_text[2])
+        if alpha_info:
+            return alpha_info["category"]
+
+    for candidate in ccn_join_candidates(ccn):
+        digits = "".join(ch for ch in str(candidate or "") if ch.isdigit())
+        if len(digits) < 6:
+            continue
+        facility_code = int(digits[-4:])
+        for start, end, label, _subtype in CCN_RANGE_TABLE:
+            if start <= facility_code <= end:
+                return label
     return "Specialty, Reserved & Other"
+
+
+def facility_subtype_for_ccn(ccn):
+    ccn_text = "".join(ch for ch in str(ccn or "").strip().upper() if ch.isalnum())
+    if len(ccn_text) == 6 and ccn_text[2].isalpha():
+        alpha_info = CCN_ALPHA_TABLE.get(ccn_text[2])
+        if alpha_info:
+            return alpha_info["subtype"]
+        return "Unknown Special Designation"
+
+    for candidate in ccn_join_candidates(ccn):
+        digits = "".join(ch for ch in str(candidate or "") if ch.isdigit())
+        if len(digits) < 6:
+            continue
+        facility_code = int(digits[-4:])
+        for start, end, _label, subtype in CCN_RANGE_TABLE:
+            if start <= facility_code <= end:
+                return subtype
+    return "Unknown Numeric Type"
+
+
+def special_designation_for_ccn(ccn):
+    ccn_text = "".join(ch for ch in str(ccn or "").strip().upper() if ch.isalnum())
+    if len(ccn_text) == 6 and ccn_text[2].isalpha():
+        alpha_info = CCN_ALPHA_TABLE.get(ccn_text[2])
+        if alpha_info:
+            return alpha_info["subtype"]
+        return "Unknown Special Designation"
+    return ""
 
 
 def state_from_ccn(ccn):
@@ -230,7 +295,9 @@ def load_or_build_hospital_cost_report():
                 "totcost": cost,
                 "iptotrev": to_float(row.get("iptotrev")) or to_float(row.get("iphosprev")) or to_float(row.get("ipoprev")),
                 "optotrev": to_float(row.get("optotrev")) or to_float(row.get("opoprev")),
+                "netpatrev": to_float(row.get("netpatrev")),
                 "income": to_float(row.get("income")),
+                "opexp": to_float(row.get("opexp")),
                 "typ_control": typ_control,
                 "ownershipCategory": OWNERSHIP_BY_TYP_CONTROL.get(typ_control, "Unknown"),
                 "beds_total": to_float(row.get("beds_total")),
@@ -262,7 +329,13 @@ def load_or_build_change_ownership():
     if cached_path.exists():
         payload = read_json(cached_path)
         if isinstance(payload, dict) and isinstance(payload.get("rows"), list):
-            return payload
+            rows = payload.get("rows", [])
+            if not rows:
+                return payload
+            sample = rows[0] if isinstance(rows[0], dict) else {}
+            required_keys = {"buyerCcn", "sellerCcn", "providerType"}
+            if required_keys.issubset(set(sample.keys())):
+                return payload
 
     csv_path = PUBLIC_DIR / "Hospital_CHOW_2026.01.02.csv"
     if not csv_path.exists():
@@ -680,7 +753,145 @@ def clean_buyer_name(value):
     return text or "UNKNOWN BUYER"
 
 
-def normalize_events(chow_payload):
+def ccn_join_candidates(value):
+    raw = str(value or "").strip().upper()
+    alnum = "".join(ch for ch in raw if ch.isalnum())
+    if not alnum:
+        return []
+
+    candidates = []
+    # Many CHOW CCNs are state+letter+3 digits (e.g., 26T047) while HCRIS pn is numeric.
+    # Map those to their numeric provider-number form for joining (e.g., 260047).
+    if re.fullmatch(r"\d{2}[A-Z]\d{3}", alnum):
+        candidates.append(f"{alnum[:2]}0{alnum[3:]}")
+
+    digits = "".join(ch for ch in alnum if ch.isdigit())
+    if digits:
+        candidates.append(digits[-6:].zfill(6))
+    else:
+        candidates.append(alnum)
+
+    return list(dict.fromkeys(candidates))
+
+
+def classify_hospital_size(beds):
+    if beds is None:
+        return "Unknown"
+    if beds <= 49:
+        return "Small (1-49 beds)"
+    if beds <= 99:
+        return "Medium (50-99 beds)"
+    if beds <= 249:
+        return "Large (100-249 beds)"
+    return "Mega (250+ beds)"
+
+
+def build_seller_metrics_lookup(cost_payload):
+    by_provider = defaultdict(list)
+    for row in cost_payload.get("rows", []):
+        candidates = ccn_join_candidates(row.get("pn"))
+        provider = candidates[0] if candidates else ""
+        if not provider:
+            continue
+
+        year = to_year(row.get("ayear")) or 0
+        beds_total = to_float(row.get("beds_total"))
+        beds = int(round(beds_total)) if beds_total is not None and beds_total > 0 else None
+        income = to_float(row.get("income"))
+        uncomp_care = to_float(row.get("costuccare_v2010"))
+        op_exp = to_float(row.get("opexp"))
+        total_revenue = to_float(row.get("tottotrev"))
+        outpatient_revenue = to_float(row.get("optotrev"))
+        net_patient_revenue = to_float(row.get("netpatrev"))
+        hospital_name = str(row.get("hospital_name") or "").strip()
+
+        if (
+            beds is None
+            and income is None
+            and uncomp_care is None
+            and op_exp is None
+            and total_revenue is None
+            and outpatient_revenue is None
+            and net_patient_revenue is None
+        ):
+            continue
+
+        by_provider[provider].append(
+            {
+                "year": year,
+                "beds": beds,
+                "income": income,
+                "uncompCareCost": uncomp_care,
+                "operatingExpenses": op_exp,
+                "totalRevenue": total_revenue,
+                "outpatientRevenue": outpatient_revenue,
+                "netPatientRevenue": net_patient_revenue,
+                "hospitalName": hospital_name,
+            }
+        )
+
+    return {provider: sorted(records, key=lambda record: record["year"]) for provider, records in by_provider.items()}
+
+
+def latest_metric(records, event_year, field):
+    at_or_before = [record for record in records if record.get(field) is not None and record.get("year", 0) <= event_year]
+    if at_or_before:
+        return at_or_before[-1].get(field)
+    any_year = [record for record in records if record.get(field) is not None]
+    if any_year:
+        return any_year[-1].get(field)
+    return None
+
+
+def metrics_for_seller_ccn(seller_ccn, event_year, seller_metrics_lookup):
+    combined_records = []
+    for candidate in ccn_join_candidates(seller_ccn):
+        records = seller_metrics_lookup.get(candidate)
+        if records:
+            combined_records.extend(records)
+    if not combined_records:
+        return {}
+
+    combined_records.sort(key=lambda record: record["year"])
+    return {
+        "beds": latest_metric(combined_records, event_year, "beds"),
+        "income": latest_metric(combined_records, event_year, "income"),
+        "uncompCareCost": latest_metric(combined_records, event_year, "uncompCareCost"),
+        "operatingExpenses": latest_metric(combined_records, event_year, "operatingExpenses"),
+        "totalRevenue": latest_metric(combined_records, event_year, "totalRevenue"),
+        "outpatientRevenue": latest_metric(combined_records, event_year, "outpatientRevenue"),
+        "netPatientRevenue": latest_metric(combined_records, event_year, "netPatientRevenue"),
+        "hospitalName": latest_metric(combined_records, event_year, "hospitalName"),
+    }
+
+
+def financial_status_for_income(income):
+    if income is None:
+        return "Unknown"
+    if income >= 0:
+        return "Profitable"
+    return "Operating at a Loss"
+
+
+def compute_ucc_burden(ucc_ratio, median_ucc_ratio):
+    if ucc_ratio is None or median_ucc_ratio is None:
+        return "Unknown Uncompensated Care Burden"
+    if ucc_ratio >= median_ucc_ratio:
+        return "High Uncompensated Care Burden"
+    return "Low Uncompensated Care Burden"
+
+
+def normalize_pipeline_facility_type(subtype):
+    raw = str(subtype or "").strip()
+    if not raw or raw == "Unknown Numeric Type":
+        return "Unknown Facility Type"
+    if raw == "Short-term (General and Specialty) Hospitals":
+        return "General Acute Hospitals"
+    return raw
+
+
+def normalize_events(chow_payload, seller_metrics_lookup=None):
+    seller_metrics_lookup = seller_metrics_lookup or {}
     normalized = []
     for row in chow_payload.get("rows", []):
         year = event_year(row)
@@ -690,6 +901,27 @@ def normalize_events(chow_payload):
         seller_id = str(row.get("sellerId") or "").strip() or "unknown-seller"
         buyer_ccn = str(row.get("buyerCcn") or "").strip()
         seller_ccn = str(row.get("sellerCcn") or "").strip()
+        seller_metrics = metrics_for_seller_ccn(seller_ccn, year, seller_metrics_lookup)
+        seller_beds = seller_metrics.get("beds")
+        seller_income = seller_metrics.get("income")
+        seller_uncomp_care = seller_metrics.get("uncompCareCost")
+        seller_operating_expenses = seller_metrics.get("operatingExpenses")
+        seller_total_revenue = seller_metrics.get("totalRevenue")
+        seller_outpatient_revenue = seller_metrics.get("outpatientRevenue")
+        seller_net_patient_revenue = seller_metrics.get("netPatientRevenue")
+        seller_hospital_name = seller_metrics.get("hospitalName") or str(row.get("sellerOrg") or seller_id)
+        seller_special_type = special_designation_for_ccn(seller_ccn)
+        facility_subtype = facility_subtype_for_ccn(seller_ccn)
+        ucc_ratio = None
+        if seller_uncomp_care is not None and seller_operating_expenses is not None and seller_operating_expenses > 0:
+            ucc_ratio = seller_uncomp_care / seller_operating_expenses
+        outpatient_share = None
+        if (
+            seller_outpatient_revenue is not None
+            and seller_total_revenue is not None
+            and seller_total_revenue > 0
+        ):
+            outpatient_share = seller_outpatient_revenue / seller_total_revenue
         buyer_state = str(row.get("buyerState") or "").strip().upper() or state_from_ccn(buyer_ccn)
         seller_state = str(row.get("sellerState") or "").strip().upper() or state_from_ccn(seller_ccn)
         normalized.append(
@@ -707,7 +939,25 @@ def normalize_events(chow_payload):
                 "buyerState": buyer_state,
                 "sellerState": seller_state,
                 "facilityType": hospital_type_for_ccn(seller_ccn),
+                "facilitySubtype": facility_subtype,
                 "hospitalType": hospital_type_for_ccn(seller_ccn),
+                "sellerSpecialType": seller_special_type,
+                "hasLetterCcn": bool(seller_special_type),
+                "sellerHospitalName": seller_hospital_name,
+                "sellerBeds": seller_beds,
+                "sellerIncome": seller_income,
+                "sellerTotalRevenue": seller_total_revenue,
+                "sellerOutpatientRevenue": seller_outpatient_revenue,
+                "sellerNetPatientRevenue": seller_net_patient_revenue,
+                "sellerUncompCareCost": seller_uncomp_care,
+                "sellerOperatingExpenses": seller_operating_expenses,
+                "sellerUccRatio": ucc_ratio,
+                "sellerOutpatientSharePct": outpatient_share * 100 if outpatient_share is not None else None,
+                "sellerUccBurdenPct": ucc_ratio * 100 if ucc_ratio is not None else None,
+                "uccBurden": "Unknown Uncompensated Care Burden",
+                "financialStatus": financial_status_for_income(seller_income),
+                "hospitalSizeCategory": classify_hospital_size(seller_beds),
+                "pipelineFacilityType": normalize_pipeline_facility_type(facility_subtype),
                 "isOutOfState": bool(buyer_state and seller_state and buyer_state != seller_state),
                 "systemId": system_id_for_event(row),
                 "providerType": str(row.get("providerType") or "Unknown"),
@@ -732,14 +982,44 @@ def build_ownership_evolution(chow_payload):
     }
 
 
-def build_consolidation(chow_payload):
-    events = normalize_events(chow_payload)
+def build_consolidation(chow_payload, cost_payload):
+    seller_metrics_lookup = build_seller_metrics_lookup(cost_payload)
+    events = normalize_events(chow_payload, seller_metrics_lookup)
+    ucc_ratios = sorted(event["sellerUccRatio"] for event in events if event.get("sellerUccRatio") is not None)
+    median_ucc_ratio = percentile(ucc_ratios, 0.5) if ucc_ratios else None
+    for event in events:
+        event["uccBurden"] = compute_ucc_burden(event.get("sellerUccRatio"), median_ucc_ratio)
+
     years = sorted({event["year"] for event in events})
-    facility_types = sorted({event["facilityType"] for event in events if event.get("facilityType")})
+    facility_types = list(grouped_ccn_data.get("categories", {}).keys())
+    facility_subtypes = sorted(
+        {
+            event["facilitySubtype"]
+            for event in events
+            if event.get("facilitySubtype")
+        }
+    )
+    special_types = sorted(
+        {
+            event["sellerSpecialType"]
+            for event in events
+            if event.get("sellerSpecialType")
+        }
+    )
     return {
         "generatedAt": datetime.utcnow().isoformat() + "Z",
         "years": years,
         "facilityTypes": facility_types,
+        "facilitySubtypes": facility_subtypes,
+        "specialTypes": special_types,
+        "medianUccRatio": median_ucc_ratio,
+        "sizeCategories": [
+            "Small (1-49 beds)",
+            "Medium (50-99 beds)",
+            "Large (100-249 beds)",
+            "Mega (250+ beds)",
+            "Unknown",
+        ],
         "events": events,
     }
 
@@ -784,7 +1064,7 @@ def load_existing_consolidation_effects():
 def main():
     cost_payload = load_or_build_hospital_cost_report()
     chow_payload = load_or_build_change_ownership()
-    consolidation_payload = build_consolidation(chow_payload)
+    consolidation_payload = build_consolidation(chow_payload, cost_payload)
     overview_payload = build_story_overview(cost_payload, consolidation_payload)
     cost_analysis_payload = build_cost_analysis(cost_payload)
     cost_analysis_story_payload = build_cost_analysis_story(cost_payload)

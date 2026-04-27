@@ -194,7 +194,7 @@ export function CostAnalysisPage() {
     <div className="data-page">
       <SectionHeading
         title="Cost Analysis"
-        subtitle="Precomputed visual narrative of hospital financial health, delivery mix, profitability, care burden, efficiency, and chain concentration."
+        subtitle="HCRIS-based hospital cost report data transformed into trend views of revenue, expense, care burden, and capacity, designed to benchmark financial performance and operational pressure over time."
       />
 
       <div className="story-flow">
@@ -245,6 +245,13 @@ export function CostAnalysisPage() {
                     <span>Adjust for Inflation ({maxYear})</span>
                   </label>
                 </div>
+                <InsightList
+                  title="Key Observations"
+                  items={[
+                    'Widening Profit Margin: There is a significant and continuously expanding gap between total hospital revenue and total costs over time.',
+                    'Exponential Revenue Growth: While costs have maintained a relatively slow, linear growth trajectory (remaining under $1.5T), total revenue has surged exponentially to approach $6.0T.',
+                  ]}
+                />
               </SurfaceCard>
             </RevealSection>
           ) : null}
@@ -296,6 +303,13 @@ export function CostAnalysisPage() {
                     <span>Adjust for Inflation ({maxYear})</span>
                   </label>
                 </div>
+                <InsightList
+                  title="Key Observations"
+                  items={[
+                    'Consistent Upward Trend: Both inpatient and outpatient average revenues per hospital have shown steady, uninterrupted growth from 1999 through 2023.',
+                    'Accelerating Combined Revenue: The stacked growth indicates that average facility revenue is accelerating rapidly in recent years, pushing total average revenues near the 1B mark.',
+                  ]}
+                />
               </SurfaceCard>
             </RevealSection>
           ) : null}
@@ -378,6 +392,13 @@ export function CostAnalysisPage() {
                     <span>Adjust for Inflation ({maxYear})</span>
                   </label>
                 </div>
+                <InsightList
+                  title="Key Observations"
+                  items={[
+                    'Historical Volatility: The average cost of uncompensated and charity care per reporting hospital has fluctuated heavily over the last two decades, typically bouncing between $5M and $10M.',
+                    'Recent Sharp Decline: There is a stark, concurrent drop in both the number of reporting hospitals (falling below 3K) and the average uncompensated care burden at the very end of the reporting period.',
+                  ]}
+                />
               </SurfaceCard>
             </RevealSection>
           ) : null}
@@ -449,6 +470,13 @@ export function CostAnalysisPage() {
                   <span>Adjust for Inflation ({maxYear})</span>
                 </label>
               </div>
+              <InsightList
+                title="Key Observations"
+                items={[
+                  'Baseline Concentration: In 2022, the vast majority of facilities experienced a relatively manageable burden of uncompensated care, clustered heavily below the $20M mark.',
+                  'High-Burden Outliers: Despite the dense clustering at the bottom, a distinct minority of outlier hospitals carried disproportionately massive financial burdens, with uncompensated care costs reaching up to $80M.',
+                ]}
+              />
             </SurfaceCard>
           </RevealSection>
 
@@ -500,6 +528,13 @@ export function CostAnalysisPage() {
                     </select>
                   </label>
                 </div>
+                <InsightList
+                  title="Key Observations"
+                  items={[
+                    'Broad Efficiency Spectrum: The 2022 histogram reveals a wide distribution in hospital occupancy rates, indicating that operational efficiency varies drastically from facility to facility rather than clustering around a single industry standard.',
+                    'Multiple Frequency Peaks: The distribution features several distinct peaks (with the highest counts nearing 400 hospitals), suggesting common but separate baselines for how different tiers of hospitals manage their capacity.',
+                  ]}
+                />
               </SurfaceCard>
             </RevealSection>
           ) : null}
@@ -544,19 +579,18 @@ export function CostAnalysisPage() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+                <InsightList
+                  title="Key Observations"
+                  items={[
+                    'Extreme Market Concentration: The chart highlights a top-heavy monopoly in 2023, with HCA vastly outpacing all competitors by maintaining a capacity nearing 32,000 total beds.',
+                    'The Competitor Plateau: After the top two networks, capacity drops off steeply into a long tail, where the remaining top 10 chains hold relatively similar, much smaller capacities (around 8,000 beds or fewer).',
+                  ]}
+                />
               </SurfaceCard>
             </RevealSection>
           ) : null}
       </div>
 
-      <InsightList
-        title="Key Observations"
-        items={[
-          'All six charts are now driven by precomputed artifacts to keep runtime lightweight.',
-          'Macro trend and uncompensated-care burden are stable long-run indicators.',
-          'Delivery mix, uncompensated burden, occupancy, and chain scale provide operational depth.',
-        ]}
-      />
     </div>
   )
 }

@@ -12,9 +12,11 @@ ccn_metadata = {
         "Medicare Identification Number"
     ],
     "format_part_a": "6 digits (2-digit state code + 4-digit facility code)",
+    "format_special": "6 alphanumeric (2-digit state code + 1 alpha character + 3-digit sequence/parent link)",
     "format_part_b": "10-digit alphanumeric"
 }
 
+# Standard Part A Numeric Ranges (Last 4 digits)
 ccn_facility_types = [
     (1, 879, "Short-term (General and Specialty) Hospitals"),
     (880, 899, "Reserved for hospitals participating in ORD demonstration project"),
@@ -57,6 +59,26 @@ ccn_facility_types = [
     (9900, 9999, "Reserved for Future Use")
 ]
 
+# Special Alphanumeric Designations (Third Position)
+ccn_special_types = {
+    "M": "Psychiatric Unit in Critical Access Hospital",
+    "R": "Rehabilitation Unit in Critical Access Hospital",
+    "S": "Psychiatric Unit",
+    "T": "Rehabilitation Unit",
+    "U": "Swing-Bed Hospital Designation for Short-Term Hospitals",
+    "W": "Swing-Bed Hospital Designation for Long Term Care Hospitals",
+    "Y": "Swing-Bed Hospital Designation for Rehabilitation Hospitals",
+    "Z": "Swing-Bed Designation for Critical Access Hospitals",
+    "A": "NF (Formerly assigned to Medicaid SNF)",
+    "B": "NF (Formerly assigned to Medicaid SNF) Expansion",
+    "E": "NF (Formerly assigned to ICF)",
+    "F": "NF (Formerly assigned to ICF) Expansion",
+    "G": "ICF/MR",
+    "H": "ICF/MR Expansion",
+    "K": "Medicaid HHAs",
+    "L": "Psychiatric Residential Treatment Facilities (PRTF)"
+}
+
 category_mapping = {
     "Hospitals & Inpatient Care": [
         "Short-term (General and Specialty) Hospitals",
@@ -69,7 +91,12 @@ category_mapping = {
         "Formerly Tuberculosis Hospitals (Numbers Retired)",
         "Rehabilitation Hospitals (Excluded from PPS)",
         "Children's Hospitals (Excluded from PPS)",
-        "Psychiatric Hospitals (Excluded from PPS)"
+        "Psychiatric Hospitals (Excluded from PPS)",
+        # Special Units added here
+        "Psychiatric Unit in Critical Access Hospital",
+        "Rehabilitation Unit in Critical Access Hospital",
+        "Psychiatric Unit",
+        "Rehabilitation Unit"
     ],
     "Renal & Dialysis Facilities": [
         "Hospital Based Renal Dialysis Facilities",
@@ -97,7 +124,20 @@ category_mapping = {
         "Home Health Agencies",
         "Skilled Nursing Facilities",
         "Continuation of Home Health Agencies (3100-3199) Series",
-        "Continuation of Home Health Agencies (8000-8499) Series"
+        "Continuation of Home Health Agencies (8000-8499) Series",
+        # Special Swing-Bed & Medicaid Types added here
+        "Swing-Bed Hospital Designation for Short-Term Hospitals",
+        "Swing-Bed Hospital Designation for Long Term Care Hospitals",
+        "Swing-Bed Hospital Designation for Rehabilitation Hospitals",
+        "Swing-Bed Designation for Critical Access Hospitals",
+        "NF (Formerly assigned to Medicaid SNF)",
+        "NF (Formerly assigned to Medicaid SNF) Expansion",
+        "NF (Formerly assigned to ICF)",
+        "NF (Formerly assigned to ICF) Expansion",
+        "ICF/MR",
+        "ICF/MR Expansion",
+        "Medicaid HHAs",
+        "Psychiatric Residential Treatment Facilities (PRTF)"
     ],
     "Specialty, Reserved & Other": [
         "Religious Non-medical Health Care Institutions (formerly Christian Science Sanatoria (Hospital Services)",
@@ -107,6 +147,7 @@ category_mapping = {
     ]
 }
 
+# Invert the mapping for O(1) lookups
 description_to_category = {}
 for broad_category, descriptions in category_mapping.items():
     for desc in descriptions:
@@ -117,12 +158,52 @@ grouped_ccn_data = {
     "categories": {category: [] for category in category_mapping.keys()}
 }
 
+# 1. Process Standard Numeric Part A Ranges
 for start, end, description in ccn_facility_types:
     parent_category = description_to_category.get(description, "Specialty, Reserved & Other")
     
     grouped_ccn_data["categories"][parent_category].append({
+        "type": "numeric_range",
         "start": start,
         "end": end,
         "subtype": description,
         "range_size": (end - start) + 1
     })
+
+# 2. Process Special Alphanumeric Codes
+for alpha_code, description in ccn_special_types.items():
+    parent_category = description_to_category.get(description, "Specialty, Reserved & Other")
+    
+    grouped_ccn_data["categories"][parent_category].append({
+        "type": "alpha_character",
+        "code": alpha_code,
+        "subtype": description,
+        "position": 3 # Alpha character is located in the 3rd position of the string
+    })
+
+def classify_ccn(ccn_string):
+    """
+    Evaluates both 6-digit standard CCNs and alphanumeric special designations.
+    """
+    ccn_string = str(ccn_string).strip().upper()
+    
+    if len(ccn_string) != 6:
+        return "Invalid CCN Length"
+        
+    # Check for Special Alpha Character in the 3rd position
+    third_char = ccn_string[2]
+    if third_char.isalpha():
+        subtype = ccn_special_types.get(third_char, "Unknown Special Designation")
+        parent_category = description_to_category.get(subtype, "Unknown")
+        return f"{parent_category}: {subtype}"
+        
+    # Standard Numeric Evaluation
+    try:
+        facility_code = int(ccn_string[-4:])
+        for start, end, description in ccn_facility_types:
+            if start <= facility_code <= end:
+                parent_category = description_to_category.get(description, "Unknown")
+                return f"{parent_category}: {description}"
+        return "Unknown Numeric Type"
+    except ValueError:
+        return "Invalid Format"

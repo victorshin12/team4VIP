@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Story Mode' },
+  { to: '/', label: 'Home' },
   { to: '/cost-analysis', label: 'Cost Analysis' },
   { to: '/consolidation', label: 'Consolidation' },
 ]
@@ -19,7 +19,7 @@ export function AppShell({ children }) {
       </div>
       <header className="top-nav">
         <div className="top-nav-inner">
-          <span className="brand-chip">CMS Story Atlas</span>
+          <span className="brand-chip">Healthcare Consolidation VIP</span>
           <nav className="route-nav" aria-label="Main views">
             {NAV_ITEMS.map((item) => (
               <NavLink
